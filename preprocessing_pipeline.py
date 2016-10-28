@@ -65,8 +65,10 @@ def create_all_calcarine_reward_workflow(analysis_info, name='all_calcarine_rewa
     from spynoza.workflows.retroicor import create_retroicor_workflow
     from spynoza.workflows.sub_workflows.masks import create_masks_from_surface_workflow
     from spynoza.nodes.fit_nuisances import fit_nuisances
-    from spynoza.nodes.edf import convert_edf_2_hdf5
-    from spynoza.nodes.hdf5_utils import mask_nii_2_hdf5
+
+    from utils import convert_edf_2_hdf5, mask_nii_2_hdf5
+
+
 
     ########################################################################################
     # nodes
@@ -146,16 +148,27 @@ def create_all_calcarine_reward_workflow(analysis_info, name='all_calcarine_rewa
                       name='fit_nuisances', iterfield=['in_file', 'slice_regressor_list', 'vol_regressors']) 
     
     # node for edf conversion
-    edf_converter = pe.MapNode(Function(input_names = ['edf_file'], output_names = ['hdf5_file'],
-                                    function = 'convert_edf_2_hdf5'), 
-                                    name = 'edf_converter', iterfield = ['edf_file'])
+    # imports = [
+    #     'import os.path as op',
+    #     'from hedfpy.HDFEyeOperator import HDFEyeOperator'
+    #     ]
 
-    # node for masking and hdf5 conversion
-    hdf5_masker = pe.MapNode(Function(input_names = ['in_files', 'mask_files', 'hdf5_file', 'folder_alias'], output_names = ['hdf5_file'],
-                                    function = 'mask_nii_2_hdf5'), 
-                                    name = 'hdf5_masker', iterfield = ['mask_files'])
-    hdf5_masker.folder_alias = 'psc'
-    hdf5_masker.hdf5_file = op.join(tempfile.mkdtemp(), 'roi.h5')
+    # edf_converter = pe.MapNode(Function(input_names = ['edf_file'], output_names = ['hdf5_file'],
+    #                                 function = 'convert_edf_2_hdf5', imports=imports), 
+    #                                 name = 'edf_converter', iterfield = ['edf_file'])
+
+    # # node for masking and hdf5 conversion
+    # imports = [
+    #     'import nibabel as nib',
+    #     'import os.path as op',
+    #     'import numpy as np',
+    #     'import tables'
+    # ]    
+    # hdf5_masker = pe.MapNode(Function(input_names = ['in_files', 'mask_files', 'hdf5_file', 'folder_alias'], output_names = ['hdf5_file'],
+    #                                 function = 'mask_nii_2_hdf5', imports=imports), 
+    #                                 name = 'hdf5_masker', iterfield = ['mask_files'])
+    # hdf5_masker.folder_alias = 'psc'
+    # hdf5_masker.hdf5_file = op.join(tempfile.mkdtemp(), 'roi.h5')
 
     # node for datasinking
     datasink = pe.Node(DataSink(), name='sinker')
@@ -174,7 +187,7 @@ def create_all_calcarine_reward_workflow(analysis_info, name='all_calcarine_rewa
 
     # behavioral pickle to json
     all_calcarine_reward_workflow.connect(datasource, 'events', pj, 'in_file')
-    all_calcarine_reward_workflow.connect(datasource, 'eye', edf_converter, 'edf_file')
+    # all_calcarine_reward_workflow.connect(datasource, 'eye', edf_converter, 'edf_file')
     
     # motion correction, using T2 inplane anatomicals to prime 
     # the motion correction to the standard EPI space
@@ -234,7 +247,7 @@ def create_all_calcarine_reward_workflow(analysis_info, name='all_calcarine_rewa
     all_calcarine_reward_workflow.connect(physio_for_niis, 'files_with_physio', fit_nuis, 'in_file')
 
     # surface-based label import in to EPI space
-    label_to_EPI = create_masks_from_surface_workflow(name = 'm2f')
+    label_to_EPI = create_masks_from_surface_workflow(name = 'label_to_EPI')
     label_to_EPI.inputs.inputspec.label_directory = 'retmap'
     label_to_EPI.inputs.inputspec.fill_thresh = 0.005
     label_to_EPI.inputs.inputspec.re = '*.label'
@@ -266,12 +279,12 @@ def create_all_calcarine_reward_workflow(analysis_info, name='all_calcarine_rewa
     all_calcarine_reward_workflow.connect(fit_nuis, 'rsq_file', datasink, 'phys.rsq')
     all_calcarine_reward_workflow.connect(fit_nuis, 'beta_file', datasink, 'phys.betas')
 
-    # all_calcarine_reward_workflow.connect(label_to_EPI, 'outputspec.output_masks', datasink, 'masks')
+    all_calcarine_reward_workflow.connect(label_to_EPI, 'outputspec.output_masks', datasink, 'masks')
     
-    all_calcarine_reward_workflow.connect(label_to_EPI, 'outputspec.output_masks', hdf5_masker, 'mask_files')
-    all_calcarine_reward_workflow.connect(psc, 'out_file', hdf5_masker, 'in_files')
-    all_calcarine_reward_workflow.connect(hdf5_masker, 'hdf5_file', datasink, 'roi_data')
+    # all_calcarine_reward_workflow.connect(label_to_EPI, 'outputspec.output_masks', hdf5_masker, 'mask_files')
+    # all_calcarine_reward_workflow.connect(psc, 'out_file', hdf5_masker, 'in_files')
+    # all_calcarine_reward_workflow.connect(hdf5_masker, 'hdf5_file', datasink, 'roi_data')
 
-    all_calcarine_reward_workflow.connect(edf_converter, 'hdf5_file', datasink, 'eye.h5')
+    # all_calcarine_reward_workflow.connect(edf_converter, 'hdf5_file', datasink, 'eye.h5')
 
     return all_calcarine_reward_workflow

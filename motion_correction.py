@@ -105,6 +105,7 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
            outputspec.motion_correction_plots : motion correction plots
            outputspec.motion_correction_parameters : motion correction parameters
     """
+    import os
     import os.path as op
     import nipype.pipeline as pe
     import nipype.interfaces.fsl as fsl
@@ -170,7 +171,7 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
     bet_T2_node = pe.MapNode(interface=
         fsl.BET(frac = analysis_info['T2_bet_f_value'], 
                 vertical_gradient = analysis_info['T2_bet_g_value'], 
-                functional=False, mask = True, padding = True), name='bet_T2', iterfield=['in_file'])
+                functional=False, mask = True), name='bet_T2', iterfield=['in_file'])
 
     bet_epi_node = pe.MapNode(interface=
         fsl.BET(frac = analysis_info['T2_bet_f_value'], 
@@ -195,7 +196,8 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
                                        function=_extend_motion_parameters), name='extend_motion_pars', iterfield = ['moco_par_file'])
 
     # registration node is set up for rigid-body within-modality reg
-    reg_flirt_N = pe.MapNode(fsl.FLIRT(cost_func='normcorr', output_type = 'NIFTI_GZ', dof = 7, interp = 'sinc'), 
+    reg_flirt_N = pe.MapNode(fsl.FLIRT(cost_func='normcorr', output_type = 'NIFTI_GZ',# dof = 6, 
+                                        interp = 'sinc', schedule =  op.abspath(op.join(os.environ['FSLDIR'], 'etc', 'flirtsch', 'sch2D_6dof'))), 
                         name = 'reg_flirt_N', iterfield = ['in_file'])
 
     regapply_moco_node = pe.MapNode(interface=
