@@ -170,7 +170,7 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
     bet_T2_node = pe.MapNode(interface=
         fsl.BET(frac = analysis_info['T2_bet_f_value'], 
                 vertical_gradient = analysis_info['T2_bet_g_value'], 
-                functional=False, mask = True), name='bet_T2', iterfield=['in_file'])
+                functional=False, mask = True, padding = True), name='bet_T2', iterfield=['in_file'])
 
     bet_epi_node = pe.MapNode(interface=
         fsl.BET(frac = analysis_info['T2_bet_f_value'], 
@@ -183,7 +183,7 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
                     cost = 'normmi', 
                     interpolation = 'sinc',
                     stats_imgs = True,
-                    dof = 7
+                    dof = 6
                     ), name='realign_all',
                                 iterfield = ['in_file', 'ref_file'])
 
@@ -195,7 +195,7 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
                                        function=_extend_motion_parameters), name='extend_motion_pars', iterfield = ['moco_par_file'])
 
     # registration node is set up for rigid-body within-modality reg
-    reg_flirt_N = pe.MapNode(fsl.FLIRT(cost_func='normmi', output_type = 'NIFTI_GZ', dof = 6, interp = 'sinc'), 
+    reg_flirt_N = pe.MapNode(fsl.FLIRT(cost_func='normcorr', output_type = 'NIFTI_GZ', dof = 7, interp = 'sinc'), 
                         name = 'reg_flirt_N', iterfield = ['in_file'])
 
     regapply_moco_node = pe.MapNode(interface=
@@ -211,10 +211,6 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
     rename_T2 = pe.Node(niu.Rename(format_string='session_T2_space',
                             keep_ext=True),
                     name='namer_T2')
-
-
-
-
 
     ########################################################################################
     # workflow
@@ -287,11 +283,6 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
     motion_correction_workflow.connect(input_node, 'output_directory', datasink, 'base_directory')
     motion_correction_workflow.connect(input_node, 'sub_id', datasink, 'container')
 
-    # and the rest
-    # motion_correction_workflow.connect(prereg_flirt_N, 'out_file', datasink, 'mcf.T2s')
-    # motion_correction_workflow.connect(mean_bold, 'out_file', rename, 'in_file')
-    # motion_correction_workflow.connect(rename, 'out_file', datasink, 'reg')
-
     motion_correction_workflow.connect(select_target_T2_node, 'which_T2', resample_target_T2, 'in_file')
     motion_correction_workflow.connect(resample_target_T2, 'out_file', rename, 'in_file')
     motion_correction_workflow.connect(rename, 'out_file', datasink, 'reg')
@@ -299,13 +290,16 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
     motion_correction_workflow.connect(select_target_T2_node, 'which_T2', rename_T2, 'in_file')
     motion_correction_workflow.connect(rename_T2, 'out_file', datasink, 'reg.@T2')
 
-    # motion_correction_workflow.connect(motion_correct_all, 'out_file', datasink, 'mcf.hr')
     motion_correction_workflow.connect(regapply_moco_node, 'out_file', datasink, 'mcf.hr')
     motion_correction_workflow.connect(resample_epis, 'out_file', datasink, 'mcf')
     motion_correction_workflow.connect(motion_correct_all, 'par_file', datasink, 'mcf.motion_pars')
     motion_correction_workflow.connect(plot_motion, 'out_file', datasink, 'mcf.motion_plots')
     motion_correction_workflow.connect(extend_motion_pars, 'ext_out_file', datasink, 'mcf.ext_motion_pars')
     motion_correction_workflow.connect(extend_motion_pars, 'new_out_file', datasink, 'mcf.new_motion_pars')
+
+    motion_correction_workflow.connect(bet_T2_node, 'out_file', datasink, 'mcf.T2s')
+    motion_correction_workflow.connect(motion_correct_all, 'out_file', datasink, 'mcf.hr_per_session')
+    motion_correction_workflow.connect(reg_flirt_N, 'out_file', datasink, 'mcf.T2_per_session')
 
     return motion_correction_workflow
 

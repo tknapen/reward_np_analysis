@@ -32,9 +32,9 @@ preprocessed_data_dir = '/home/shared/-2014/reward/new/'
 FS_subject_dir = os.path.join(raw_data_dir, 'FS_SJID')
 
 # for now, testing on a single subject, with appropriate FS ID, this will have to be masked.
-for si in range(1,2): # 
+for si in range(2,3): # 
     sub_id, FS_ID = 'sub-00%i'%si, 'sub-00%i'%si
-    sess_id = 'ses-*'
+    sess_id = 'ses-variable_*'
 
     # now we set up the folders and logging there.
     opd = op.join(preprocessed_data_dir, sub_id)
