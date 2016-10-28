@@ -1,6 +1,6 @@
 def which_files_have_physio(all_input_files, 
                                 all_physio_files, 
-                                input_extension = '_bold_brain_mcf.nii.gz', 
+                                input_extension = '_bold_brain_mcf_flirt_maths.nii.gz', 
                                 physio_extension = '_physio.log'):
     '''selects nifti files that have corresponding physio log files.
     Parameters
