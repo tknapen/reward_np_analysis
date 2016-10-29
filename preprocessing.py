@@ -12,6 +12,8 @@ import nipype.interfaces.fsl as fsl
 import nipype.pipeline.engine as pe
 import nipype.interfaces.utility as util
 import nipype.interfaces.io as nio
+from nipype.interfaces.filemanip import copyfile
+
 import nibabel as nib
 from IPython.display import Image
 from nipype.interfaces.utility import Function, Merge, IdentityInterface
@@ -21,7 +23,7 @@ from IPython.display import Image
 from IPython import embed as shell
 
 
-from preprocessing_pipeline import create_all_calcarine_reward_workflow
+from workflows.preprocessing_pipeline import create_all_calcarine_reward_preprocessing_workflow
 
 # we will create a workflow from a BIDS formatted input, at first for the specific use case 
 # of a 7T PRF experiment's preprocessing. 
@@ -71,11 +73,16 @@ for si in range(2,3): #
         experimental_parameters = json.loads(json_s)
     analysis_info.update(experimental_parameters)
 
-    if not op.isdir(preprocessed_data_dir):
+    if not op.isdir(os.path.join(preprocessed_data_dir, sub_id)):
         try:
-            os.makedirs(preprocessed_data_dir)
+            os.makedirs(os.path.join(preprocessed_data_dir, sub_id))
         except OSError:
             pass
+
+    # copy json files to preprocessed data folder
+    copyfile(os.path.join(raw_data_dir, 'acquisition_parameters.json'), os.path.join(preprocessed_data_dir, 'acquisition_parameters.json'))
+    copyfile(os.path.join(raw_data_dir, 'analysis_parameters.json'), os.path.join(preprocessed_data_dir, 'analysis_parameters.json'))
+    copyfile(os.path.join(raw_data_dir, sub_id ,'experimental_parameters.json'), os.path.join(preprocessed_data_dir, sub_id ,'experimental_parameters.json'))
 
     # the actual workflow
     all_calcarine_reward_workflow = create_all_calcarine_reward_workflow(analysis_info, name = 'all_calcarine_reward')
@@ -112,5 +119,5 @@ for si in range(2,3): #
     all_calcarine_reward_workflow.inputs.inputspec.te_diff = acquisition_parameters['EchoTimeDifference']
 
     # write out the graph and run
-    all_calcarine_reward_workflow.write_graph(opd + '.png')
+    all_calcarine_reward_workflow.write_graph(opd + '.svg', format='svg', graph2use='colored', simple_form=False)
     all_calcarine_reward_workflow.run('MultiProc', plugin_args={'n_procs': 32})

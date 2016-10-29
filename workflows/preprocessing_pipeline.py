@@ -44,7 +44,7 @@ def which_files_have_physio(all_input_files,
     return files_with_physio
 
 
-def create_all_calcarine_reward_workflow(analysis_info, name='all_calcarine_reward'):
+def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_calcarine_reward'):
     import os.path as op
     import tempfile
     import nipype.pipeline as pe
@@ -52,6 +52,7 @@ def create_all_calcarine_reward_workflow(analysis_info, name='all_calcarine_rewa
     from nipype.interfaces.utility import Function, Merge, IdentityInterface
     from spynoza.nodes.utils import get_scaninfo, dyns_min_1, topup_scan_params, apply_scan_params
     from nipype.interfaces.io import SelectFiles, DataSink
+    from nipype.interfaces.filemanip import copyfiles
 
 
     # Importing of custom nodes from spynoza packages; assumes that spynoza is installed:
@@ -60,13 +61,13 @@ def create_all_calcarine_reward_workflow(analysis_info, name='all_calcarine_rewa
     from spynoza.nodes.utils import get_scaninfo, pickfirst, percent_signal_change, average_over_runs, pickle_to_json, set_nifti_intercept_slope
     from spynoza.workflows.topup_unwarping import create_topup_workflow
     from spynoza.workflows.B0_unwarping import create_B0_workflow
-    from motion_correction import create_motion_correction_workflow
     from spynoza.workflows.registration import create_registration_workflow
     from spynoza.workflows.retroicor import create_retroicor_workflow
     from spynoza.workflows.sub_workflows.masks import create_masks_from_surface_workflow
     from spynoza.nodes.fit_nuisances import fit_nuisances
 
-    from utils import convert_edf_2_hdf5, mask_nii_2_hdf5
+    from motion_correction import create_motion_correction_workflow
+    from ..utils.utils import convert_edf_2_hdf5, mask_nii_2_hdf5
 
 
 
@@ -146,29 +147,6 @@ def create_all_calcarine_reward_workflow(analysis_info, name='all_calcarine_rewa
                                     output_names=['res_file', 'rsq_file', 'beta_file'],
                                     function=fit_nuisances),
                       name='fit_nuisances', iterfield=['in_file', 'slice_regressor_list', 'vol_regressors']) 
-    
-    # node for edf conversion
-    # imports = [
-    #     'import os.path as op',
-    #     'from hedfpy.HDFEyeOperator import HDFEyeOperator'
-    #     ]
-
-    # edf_converter = pe.MapNode(Function(input_names = ['edf_file'], output_names = ['hdf5_file'],
-    #                                 function = 'convert_edf_2_hdf5', imports=imports), 
-    #                                 name = 'edf_converter', iterfield = ['edf_file'])
-
-    # # node for masking and hdf5 conversion
-    # imports = [
-    #     'import nibabel as nib',
-    #     'import os.path as op',
-    #     'import numpy as np',
-    #     'import tables'
-    # ]    
-    # hdf5_masker = pe.MapNode(Function(input_names = ['in_files', 'mask_files', 'hdf5_file', 'folder_alias'], output_names = ['hdf5_file'],
-    #                                 function = 'mask_nii_2_hdf5', imports=imports), 
-    #                                 name = 'hdf5_masker', iterfield = ['mask_files'])
-    # hdf5_masker.folder_alias = 'psc'
-    # hdf5_masker.hdf5_file = op.join(tempfile.mkdtemp(), 'roi.h5')
 
     # node for datasinking
     datasink = pe.Node(DataSink(), name='sinker')
@@ -238,13 +216,13 @@ def create_all_calcarine_reward_workflow(analysis_info, name='all_calcarine_rewa
     all_calcarine_reward_workflow.connect(input_node, 'phys_sample_rate', retr, 'inputspec.phys_sample_rate')
 
     # fit nuisances from retroicor
-    all_calcarine_reward_workflow.connect(retr, 'outputspec.evs', fit_nuis, 'slice_regressor_list')
+    # all_calcarine_reward_workflow.connect(retr, 'outputspec.evs', fit_nuis, 'slice_regressor_list')
     # select the relevant motion correction files, using selection function
-    all_calcarine_reward_workflow.connect(motion_proc, 'outputspec.extended_motion_correction_parameters', physio_for_mocos, 'all_input_files')
-    all_calcarine_reward_workflow.connect(datasource, 'physio', physio_for_mocos, 'all_physio_files')
-    all_calcarine_reward_workflow.connect(physio_for_mocos, 'files_with_physio', fit_nuis, 'vol_regressors')
+    # all_calcarine_reward_workflow.connect(motion_proc, 'outputspec.extended_motion_correction_parameters', physio_for_mocos, 'all_input_files')
+    # all_calcarine_reward_workflow.connect(datasource, 'physio', physio_for_mocos, 'all_physio_files')
+    # all_calcarine_reward_workflow.connect(physio_for_mocos, 'files_with_physio', fit_nuis, 'vol_regressors')
 
-    all_calcarine_reward_workflow.connect(physio_for_niis, 'files_with_physio', fit_nuis, 'in_file')
+    # all_calcarine_reward_workflow.connect(physio_for_niis, 'files_with_physio', fit_nuis, 'in_file')
 
     # surface-based label import in to EPI space
     label_to_EPI = create_masks_from_surface_workflow(name = 'label_to_EPI')
@@ -275,9 +253,9 @@ def create_all_calcarine_reward_workflow(analysis_info, name='all_calcarine_rewa
     all_calcarine_reward_workflow.connect(retr, 'outputspec.fig_file', datasink, 'phys.figs')
     all_calcarine_reward_workflow.connect(retr, 'outputspec.evs', datasink, 'phys.evs')
 
-    all_calcarine_reward_workflow.connect(fit_nuis, 'res_file', datasink, 'phys.res')
-    all_calcarine_reward_workflow.connect(fit_nuis, 'rsq_file', datasink, 'phys.rsq')
-    all_calcarine_reward_workflow.connect(fit_nuis, 'beta_file', datasink, 'phys.betas')
+    # all_calcarine_reward_workflow.connect(fit_nuis, 'res_file', datasink, 'phys.res')
+    # all_calcarine_reward_workflow.connect(fit_nuis, 'rsq_file', datasink, 'phys.rsq')
+    # all_calcarine_reward_workflow.connect(fit_nuis, 'beta_file', datasink, 'phys.betas')
 
     all_calcarine_reward_workflow.connect(label_to_EPI, 'outputspec.output_masks', datasink, 'masks')
     
