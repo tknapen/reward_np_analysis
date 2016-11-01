@@ -39,12 +39,13 @@ def convert_edf_2_hdf5(edf_file, low_pass_pupil_f = 6.0, high_pass_pupil_f = 0.0
 
     return hdf5_file
 
-def convert_hdf_eye_to_tsv(hdf5_file, tsv_file = None, tr_key = 116.0, xy_intercepts = None, xy_slopes = None ):
+def convert_hdf_eye_to_tsv(hdf5_file, tsv_file = None, xy_intercepts = None, xy_slopes = None ):
 
     from hedfpy import HDFEyeOperator
     import tempfile
     import os
 
+    tr_key = 116.0
     alias = op.splitext(op.split(hdf5_file)[-1])[0]
 
     ho = HDFEyeOperator(hdf5_file)
@@ -72,16 +73,204 @@ def convert_hdf_eye_to_tsv(hdf5_file, tsv_file = None, tr_key = 116.0, xy_interc
     
     # some post-processing:
     # time in seconds
-    selected_data[:,0] = (selected_data[:,0] - selected_data[0,0]) / float(sample_rate)
+    selected_data[:,0] = (selected_data[:,0] - selected_data[0,0]) / 1000.0,  # convert ms to s
     # linear gaze position scaling
-    if xy_intercepts != None and if xy_slopes != None:
-        for i in [1,2]
+    if (xy_intercepts != None) and (xy_slopes != None):
+        for i in [1,2]:
             selected_data[:,i] = (selected_data[:,i] * xy_slopes[i-1]) + xy_intercepts[i-1]
 
-    np.savetxt(temp_tsv, selected_data, fmt = '%3.2f', delimiter = '\t', header="time   X   Y   pupil")
+    np.savetxt(temp_tsv, selected_data, fmt = '%3.3f', delimiter = '\t', header="time   X   Y   pupil")
     os.system('gzip ' + temp_tsv)
 
     return temp_tsv + '.gz'
+
+def convert_unpredictable_trials_to_tsv(hdf5_file, tsv_file = None, reward_signal = 1.0 ):
+
+    from hedfpy import HDFEyeOperator
+    import tempfile
+    import os
+    import os.path as op
+    import numpy as np
+    import pandas as pd
+
+    tr_key = 116.0
+
+    alias = op.splitext(op.split(hdf5_file)[-1])[0]
+
+    ho = HDFEyeOperator(hdf5_file)
+    ho.open_hdf_file('a')
+    node = ho.h5f.get_node('/' + alias)
+    trial_phase_data = node.trial_phases.read()
+    events = node.events.read()
+    parameters = node.parameters.read()
+
+    if tsv_file == None:
+        tempdir = tempfile.mkdtemp()
+        temp_tsv = op.join(tempdir, alias + '.tsv')
+    else:
+        temp_tsv = tsv_file
+
+    # find first TR, and use it to define:
+    # the duration of the datastream and the tr
+    tr_timestamps = events['EL_timestamp'][(events['key'] == tr_key) & (events['up_down'] == 'Down')]
+    tr = np.round(np.mean(np.diff(tr_timestamps)))
+    sample_rate = ho.sample_rate_during_period([tr_timestamps[0], tr_timestamps[-1] + tr], alias)
+
+    run_onset_EL_time = tr_timestamps[0]
+
+    columns_df = ['sound', 'contrast', 'stim_eccentricity', 'orientation', 'mask_radius']
+    tp_value = 2.0
+
+    trial_phase_timestamps = np.array(trial_phase_data[trial_phase_data['trial_phase_index'] == tp_value]['trial_phase_EL_timestamp'])
+
+    trial_parameters = pd.DataFrame(parameters[columns_df].T)
+
+    # first, we re-code the parameters in terms of screen coordinates
+    # convert stim position from proportion of screen (1920, 124 cm distance on BoldScreen32) to dva
+    trial_parameters['stim_eccentricity'] = trial_parameters['stim_eccentricity'] * 11 # 11 degrees from fix to edge of screen
+    trial_parameters['mask_radius'] = trial_parameters['mask_radius'] * 22 / 1920 # 11 degrees from fix to edge of screen
+
+    # add the times at which stimuli and rewards were presented
+    which_trials_reward = np.array(trial_parameters['sound'] == reward_signal)
+    reward_times = np.zeros(len(trial_phase_timestamps))
+    # the sound was 800 ms delayed wrt the stimulus onset
+    reward_times[which_trials_reward] = \
+                (800.0 + trial_phase_timestamps[which_trials_reward] - tr_timestamps[0] ) / 1000.0
+
+    trial_parameters['reward_time'] = pd.Series(reward_times)
+    trial_parameters['stim_onset_time'] = pd.Series((trial_phase_timestamps - tr_timestamps[0] ) / 1000.0)
+
+    trial_parameters = trial_parameters.sort_values(by = 'stim_onset_time')
+
+    trial_parameters.to_csv(temp_tsv, sep = '\t', float_format = '%3.2f', header = True, index = False)
+
+    return temp_tsv
+
+def convert_predictable_trials_to_tsv(hdf5_file, tsv_file = None ):
+
+    from hedfpy import HDFEyeOperator
+    import tempfile
+    import os
+    import os.path as op
+    import numpy as np
+    import pandas as pd
+    import math
+
+    tr_key = 116.0
+
+    alias = op.splitext(op.split(hdf5_file)[-1])[0]
+
+    ho = HDFEyeOperator(hdf5_file)
+    ho.open_hdf_file('a')
+    node = ho.h5f.get_node('/' + alias)
+    trial_phase_data = node.trial_phases.read()
+    events = node.events.read()
+    parameters = node.parameters.read()
+
+    if tsv_file == None:
+        tempdir = tempfile.mkdtemp()
+        temp_tsv = op.join(tempdir, alias + '.tsv')
+    else:
+        temp_tsv = tsv_file
+
+    # find first TR, and use it to define:
+    # the duration of the datastream and the tr
+    tr_timestamps = events['EL_timestamp'][(events['key'] == tr_key) & (events['up_down'] == 'Down')]
+    tr = np.round(np.mean(np.diff(tr_timestamps)))
+    sample_rate = ho.sample_rate_during_period([tr_timestamps[0], tr_timestamps[-1] + tr], alias)
+
+    run_onset_EL_time = tr_timestamps[0]
+
+    columns_df = ['sound', 'contrast', 'x_position', 'orientation', 'mask_radius']
+    tp_value = 2.0
+
+    trial_phase_timestamps = np.array(trial_phase_data[trial_phase_data['trial_phase_index'] == tp_value]['trial_phase_EL_timestamp'])
+
+    trial_parameters = pd.DataFrame(parameters[columns_df].T)
+
+    # first, we re-code the parameters in terms of screen coordinates
+    # convert stim position from proportion of screen (1920, 124 cm distance on BoldScreen32) to dva
+    trial_parameters['x_position'] = trial_parameters['x_position'] * 11 # 11 degrees from fix to edge of screen
+    trial_parameters['mask_radius'] = trial_parameters['mask_radius'] * 22 / 1920 # 11 degrees from fix to edge of screen
+
+    # add the times at which stimuli and rewards were presented
+    which_trials_reward = np.array(trial_parameters['sound'] == 1)
+    reward_times = np.zeros(len(trial_phase_timestamps))
+    # the sound was 800 ms delayed wrt the stimulus onset
+    reward_times[which_trials_reward] = \
+                (800.0 + trial_phase_timestamps[which_trials_reward] - tr_timestamps[0] ) / 1000.0
+
+    trial_parameters['reward_time'] = pd.Series(reward_times)
+    trial_parameters['stim_onset_time'] = pd.Series((trial_phase_timestamps - tr_timestamps[0] ) / 1000.0)
+
+    trial_parameters = trial_parameters.sort_values(by = 'stim_onset_time')
+
+    trial_parameters.to_csv(temp_tsv, sep = '\t', float_format = '%3.2f', header = True, index = False)
+
+    return temp_tsv
+
+def convert_variable_trials_to_tsv(hdf5_file, tsv_file = None, reward_signal = 1.0 ):
+
+    from hedfpy import HDFEyeOperator
+    import tempfile
+    import os
+    import os.path as op
+    import numpy as np
+    import pandas as pd
+    import math
+
+    tr_key = 116.0
+
+    alias = op.splitext(op.split(hdf5_file)[-1])[0]
+
+    ho = HDFEyeOperator(hdf5_file)
+    ho.open_hdf_file('a')
+    node = ho.h5f.get_node('/' + alias)
+    trial_phase_data = node.trial_phases.read()
+    events = node.events.read()
+    parameters = node.parameters.read()
+
+    if tsv_file == None:
+        tempdir = tempfile.mkdtemp()
+        temp_tsv = op.join(tempdir, alias + '.tsv')
+    else:
+        temp_tsv = tsv_file
+
+    # find first TR, and use it to define:
+    # the duration of the datastream and the tr
+    tr_timestamps = events['EL_timestamp'][(events['key'] == tr_key) & (events['up_down'] == 'Down')]
+    tr = np.round(np.mean(np.diff(tr_timestamps)))
+    sample_rate = ho.sample_rate_during_period([tr_timestamps[0], tr_timestamps[-1] + tr], alias)
+
+    run_onset_EL_time = tr_timestamps[0]
+
+    columns_df = ['sound', 'contrast', 'stim_eccentricity', 'stim_orientation', 'mask_radius', 'reward_delay', 'which_stimulus_for_rgb_overlay']
+    tp_value = 2.0
+
+    trial_phase_timestamps = np.array(trial_phase_data[trial_phase_data['trial_phase_index'] == tp_value]['trial_phase_EL_timestamp'])
+
+    trial_parameters = pd.DataFrame(parameters[columns_df].T)
+
+    # first, we re-code the parameters in terms of screen coordinates
+    # convert stim position from proportion of screen (1920, 124 cm distance on BoldScreen32) to dva
+    trial_parameters['stim_eccentricity'] = trial_parameters['stim_eccentricity'] * 11 # 11 degrees from fix to edge of screen
+    trial_parameters['mask_radius'] = trial_parameters['mask_radius'] * 22 / 1920 # 11 degrees from fix to edge of screen
+
+    # add the times at which stimuli and rewards were presented
+    which_trials_reward = np.array(trial_parameters['sound'] == reward_signal)
+    reward_times = np.zeros(len(trial_phase_timestamps))
+    # the sound was 800 ms delayed wrt the stimulus onset
+    reward_times = trial_parameters['reward_delay'] + (trial_phase_timestamps - tr_timestamps[0] ) / 1000.0
+
+    trial_parameters['reward_time'] = pd.Series(reward_times)
+    trial_parameters['stim_onset_time'] = pd.Series((trial_phase_timestamps - tr_timestamps[0] ) / 1000.0)
+
+    trial_parameters = trial_parameters.sort_values(by = 'stim_onset_time')
+
+    trial_parameters.to_csv(temp_tsv, sep = '\t', float_format = '%3.2f', header = True, index = False)
+
+    return temp_tsv
+
 
 
 def mask_nii_2_hdf5(in_files, mask_files, hdf5_file, folder_alias):
