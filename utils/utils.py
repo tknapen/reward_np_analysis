@@ -256,13 +256,31 @@ def convert_variable_trials_to_tsv(hdf5_file, tsv_file = None, reward_signal = 1
     trial_parameters['stim_eccentricity'] = trial_parameters['stim_eccentricity'] * 11 # 11 degrees from fix to edge of screen
     trial_parameters['mask_radius'] = trial_parameters['mask_radius'] * 22 / 1920 # 11 degrees from fix to edge of screen
 
-    # add the times at which stimuli and rewards were presented
-    which_trials_reward = np.array(trial_parameters['sound'] == reward_signal)
-    reward_times = np.zeros(len(trial_phase_timestamps))
     # the sound was 800 ms delayed wrt the stimulus onset
     reward_times = trial_parameters['reward_delay'] + (trial_phase_timestamps - tr_timestamps[0] ) / 1000.0
 
-    trial_parameters['reward_time'] = pd.Series(reward_times)
+
+    # now, we need to re-code the probabilities. 
+    # first, we detect which feedback sound was the high-reward one. 
+    # we do this by looking at the 0-orientation trials, because
+    # there were no-stim reward trials, but no no-stim no-reward trials
+    which_sound_reward = np.array(trial_parameters['sound'])[np.array(np.array(trial_parameters['stim_orientation'] == 0.0))].mean()
+    which_trials_reward = np.array(trial_parameters['sound'] == which_sound_reward)
+    # now, we can find which orientations had which reward probability, since 
+    # the reward probability is not theoretical, but practical, on every run
+    orientations = np.sort(np.unique(np.array(trial_parameters['stim_orientation'])))
+    reward_probabilities = [(np.array(trial_parameters['sound'])[np.array(trial_parameters['stim_orientation'] == ori)] == which_sound_reward).mean() 
+                                for ori in orientations]
+
+    # and we use this to fill in the per-trial value for reward probability
+    reward_probs_per_trial = np.zeros(len(trial_phase_timestamps))
+    for ori, rp in zip(orientations, reward_probabilities):
+        reward_probs_per_trial[np.array(trial_parameters['stim_orientation'] == ori)] = rp
+    trial_parameters['reward_probability'] = pd.Series(reward_probs_per_trial)
+ 
+    trial_parameters['feedback_time'] = pd.Series(reward_times)
+    trial_parameters['feedback_was_reward'] = pd.Series(np.array(which_trials_reward, dtype = np.int))
+
     trial_parameters['stim_onset_time'] = pd.Series((trial_phase_timestamps - tr_timestamps[0] ) / 1000.0)
 
     trial_parameters = trial_parameters.sort_values(by = 'stim_onset_time')
@@ -270,8 +288,6 @@ def convert_variable_trials_to_tsv(hdf5_file, tsv_file = None, reward_signal = 1
     trial_parameters.to_csv(temp_tsv, sep = '\t', float_format = '%3.2f', header = True, index = False)
 
     return temp_tsv
-
-
 
 def mask_nii_2_hdf5(in_files, mask_files, hdf5_file, folder_alias):
     """masks data in in_files with masks in mask_files,
