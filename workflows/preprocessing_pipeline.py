@@ -52,7 +52,6 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
     from nipype.interfaces.utility import Function, Merge, IdentityInterface
     from spynoza.nodes.utils import get_scaninfo, dyns_min_1, topup_scan_params, apply_scan_params
     from nipype.interfaces.io import SelectFiles, DataSink
-    from nipype.interfaces.filemanip import copyfiles
 
 
     # Importing of custom nodes from spynoza packages; assumes that spynoza is installed:
@@ -67,7 +66,7 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
     from spynoza.nodes.fit_nuisances import fit_nuisances
 
     from motion_correction import create_motion_correction_workflow
-    from ..utils.utils import convert_edf_2_hdf5, mask_nii_2_hdf5
+    from utils.utils import convert_edf_2_hdf5, mask_nii_2_hdf5
 
 
 
@@ -104,7 +103,8 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
                                 physio='{sub_id}/{sess_id}/func/*.log',
                                 events='{sub_id}/{sess_id}/func/*.pickle',
                                 eye='{sub_id}/{sess_id}/func/*.edf',
-                                anat='{sub_id}/{sess_id}/anat/*_t2w.nii.gz') # ,
+                                anat='{sub_id}/{sess_id}/anat/*_t2w.nii.gz',
+                                reg='{sub_id}/{sess_id}/anat/*_t2w.mat') # ,
     datasource = pe.Node(SelectFiles(datasource_templates, sort_filelist = True, raise_on_empty = False), 
         name = 'datasource')
 
@@ -148,6 +148,12 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
                                     function=fit_nuisances),
                       name='fit_nuisances', iterfield=['in_file', 'slice_regressor_list', 'vol_regressors']) 
 
+    edf_converter = pe.MapNode(Function(input_names=['edf_file'],
+                                    output_names=['hdf5_file'],
+                                    function=convert_edf_2_hdf5),
+                      name='edf_converter', iterfield=['edf_file'])
+
+
     # node for datasinking
     datasink = pe.Node(DataSink(), name='sinker')
     datasink.inputs.parameterization = False
@@ -165,7 +171,6 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
 
     # behavioral pickle to json
     all_calcarine_reward_workflow.connect(datasource, 'events', pj, 'in_file')
-    # all_calcarine_reward_workflow.connect(datasource, 'eye', edf_converter, 'edf_file')
     
     # motion correction, using T2 inplane anatomicals to prime 
     # the motion correction to the standard EPI space
@@ -175,6 +180,7 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
     all_calcarine_reward_workflow.connect(input_node, 'which_file_is_EPI_space', motion_proc, 'inputspec.which_file_is_EPI_space')
     all_calcarine_reward_workflow.connect(datasource, 'func', motion_proc, 'inputspec.in_files')
     all_calcarine_reward_workflow.connect(datasource, 'anat', motion_proc, 'inputspec.inplane_T2_files')
+    all_calcarine_reward_workflow.connect(datasource, 'reg', motion_proc, 'inputspec.T2_files_reg_matrices')
 
     # registration
     reg = create_registration_workflow(analysis_info, name = 'reg')
@@ -225,26 +231,27 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
     # all_calcarine_reward_workflow.connect(physio_for_niis, 'files_with_physio', fit_nuis, 'in_file')
 
     # surface-based label import in to EPI space
-    label_to_EPI = create_masks_from_surface_workflow(name = 'label_to_EPI')
-    label_to_EPI.inputs.inputspec.label_directory = 'retmap'
-    label_to_EPI.inputs.inputspec.fill_thresh = 0.005
-    label_to_EPI.inputs.inputspec.re = '*.label'
+    masks_from_surface = create_masks_from_surface_workflow(name = 'masks_from_surface')
+    masks_from_surface.inputs.inputspec.label_directory = 'retmap'
+    masks_from_surface.inputs.inputspec.fill_thresh = 0.005
+    masks_from_surface.inputs.inputspec.re = '*.label'
     
-    all_calcarine_reward_workflow.connect(motion_proc, 'outputspec.EPI_space_file', label_to_EPI, 'inputspec.EPI_space_file')
-    all_calcarine_reward_workflow.connect(input_node, 'output_directory', label_to_EPI, 'inputspec.output_directory')
-    all_calcarine_reward_workflow.connect(input_node, 'FS_subject_dir', label_to_EPI, 'inputspec.freesurfer_subject_dir')
-    all_calcarine_reward_workflow.connect(input_node, 'FS_ID', label_to_EPI, 'inputspec.freesurfer_subject_ID')
-    all_calcarine_reward_workflow.connect(reg, 'rename_register.out_file', label_to_EPI, 'inputspec.reg_file')
+    all_calcarine_reward_workflow.connect(motion_proc, 'outputspec.EPI_space_file', masks_from_surface, 'inputspec.EPI_space_file')
+    all_calcarine_reward_workflow.connect(input_node, 'output_directory', masks_from_surface, 'inputspec.output_directory')
+    all_calcarine_reward_workflow.connect(input_node, 'FS_subject_dir', masks_from_surface, 'inputspec.freesurfer_subject_dir')
+    all_calcarine_reward_workflow.connect(input_node, 'FS_ID', masks_from_surface, 'inputspec.freesurfer_subject_ID')
+    all_calcarine_reward_workflow.connect(reg, 'rename_register.out_file', masks_from_surface, 'inputspec.reg_file')
 
-    ########################################################################################
-    # outputs via datasink
-    ########################################################################################
+    # ########################################################################################
+    # # outputs via datasink
+    # ########################################################################################
 
     all_calcarine_reward_workflow.connect(input_node, 'output_directory', datasink, 'base_directory')
 
-    # sink out events and eyelink files
+    # # sink out events and eyelink files
     all_calcarine_reward_workflow.connect(pj, 'out_file', datasink, 'events')
     all_calcarine_reward_workflow.connect(datasource, 'eye', datasink, 'eye')
+    all_calcarine_reward_workflow.connect(datasource, 'eye', edf_converter, 'edf_file')
 
     all_calcarine_reward_workflow.connect(sgfilter, 'out_file', datasink, 'tf')
     all_calcarine_reward_workflow.connect(psc, 'out_file', datasink, 'psc')
@@ -257,12 +264,12 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
     # all_calcarine_reward_workflow.connect(fit_nuis, 'rsq_file', datasink, 'phys.rsq')
     # all_calcarine_reward_workflow.connect(fit_nuis, 'beta_file', datasink, 'phys.betas')
 
-    all_calcarine_reward_workflow.connect(label_to_EPI, 'outputspec.output_masks', datasink, 'masks')
+    # all_calcarine_reward_workflow.connect(masks_from_surface, 'outputspec.masks', datasink, 'masks')
     
-    # all_calcarine_reward_workflow.connect(label_to_EPI, 'outputspec.output_masks', hdf5_masker, 'mask_files')
+    # all_calcarine_reward_workflow.connect(masks_from_surface, 'l2v.vol_label_file', hdf5_masker, 'mask_files')
     # all_calcarine_reward_workflow.connect(psc, 'out_file', hdf5_masker, 'in_files')
     # all_calcarine_reward_workflow.connect(hdf5_masker, 'hdf5_file', datasink, 'roi_data')
 
-    # all_calcarine_reward_workflow.connect(edf_converter, 'hdf5_file', datasink, 'eye.h5')
+    all_calcarine_reward_workflow.connect(edf_converter, 'hdf5_file', datasink, 'eye.h5')
 
     return all_calcarine_reward_workflow

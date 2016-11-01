@@ -12,7 +12,7 @@ import nipype.interfaces.fsl as fsl
 import nipype.pipeline.engine as pe
 import nipype.interfaces.utility as util
 import nipype.interfaces.io as nio
-from nipype.interfaces.filemanip import copyfile
+from nipype.utils.filemanip import copyfile
 
 import nibabel as nib
 from IPython.display import Image
@@ -34,9 +34,9 @@ preprocessed_data_dir = '/home/shared/-2014/reward/new/'
 FS_subject_dir = os.path.join(raw_data_dir, 'FS_SJID')
 
 # for now, testing on a single subject, with appropriate FS ID, this will have to be masked.
-for si in range(2,3): # 
+for si in range(4,7): # 
     sub_id, FS_ID = 'sub-00%i'%si, 'sub-00%i'%si
-    sess_id = 'ses-variable_*'
+    sess_id = 'ses-*'
 
     # now we set up the folders and logging there.
     opd = op.join(preprocessed_data_dir, sub_id)
@@ -80,12 +80,12 @@ for si in range(2,3): #
             pass
 
     # copy json files to preprocessed data folder
-    copyfile(os.path.join(raw_data_dir, 'acquisition_parameters.json'), os.path.join(preprocessed_data_dir, 'acquisition_parameters.json'))
-    copyfile(os.path.join(raw_data_dir, 'analysis_parameters.json'), os.path.join(preprocessed_data_dir, 'analysis_parameters.json'))
-    copyfile(os.path.join(raw_data_dir, sub_id ,'experimental_parameters.json'), os.path.join(preprocessed_data_dir, sub_id ,'experimental_parameters.json'))
+    copyfile(os.path.join(raw_data_dir, 'acquisition_parameters.json'), os.path.join(preprocessed_data_dir, 'acquisition_parameters.json'), copy = True)
+    copyfile(os.path.join(raw_data_dir, 'analysis_parameters.json'), os.path.join(preprocessed_data_dir, 'analysis_parameters.json'), copy = True)
+    copyfile(os.path.join(raw_data_dir, sub_id ,'experimental_parameters.json'), os.path.join(preprocessed_data_dir, sub_id ,'experimental_parameters.json'), copy = True)
 
     # the actual workflow
-    all_calcarine_reward_workflow = create_all_calcarine_reward_workflow(analysis_info, name = 'all_calcarine_reward')
+    all_calcarine_reward_workflow = create_all_calcarine_reward_preprocessing_workflow(analysis_info, name = 'all_calcarine_reward')
 
     # standard in/output variables
     all_calcarine_reward_workflow.inputs.inputspec.raw_directory = raw_data_dir
@@ -121,3 +121,4 @@ for si in range(2,3): #
     # write out the graph and run
     all_calcarine_reward_workflow.write_graph(opd + '.svg', format='svg', graph2use='colored', simple_form=False)
     all_calcarine_reward_workflow.run('MultiProc', plugin_args={'n_procs': 32})
+    # all_calcarine_reward_workflow.run()

@@ -19,18 +19,70 @@ def convert_edf_2_hdf5(edf_file, low_pass_pupil_f = 6.0, high_pass_pupil_f = 0.0
         absolute path to hdf5 file.
     """
 
+    import os
     import os.path as op
-    from hedfpy.HDFEyeOperator import HDFEyeOperator
+    from hedfpy import HDFEyeOperator
+    import tempfile
 
-    hdf5_file = op.abspath(op.splitext(edf_file)[0] + '.h5')
+    tempdir = tempfile.mkdtemp()
+    temp_edf = op.join(tempdir, op.split(edf_file)[-1])
+
+    os.system('cp ' + edf_file + ' ' + temp_edf)
+
+    hdf5_file = op.join(tempdir, op.split(op.splitext(edf_file)[0] + '.h5')[-1])
     alias = op.splitext(op.split(edf_file)[-1])[0]
 
     ho = HDFEyeOperator(hdf5_file)
-    ho.add_edf_file(edf_file)
+    ho.add_edf_file(temp_edf)
     ho.edf_message_data_to_hdf(alias = alias)
     ho.edf_gaze_data_to_hdf(alias = alias, pupil_hp = high_pass_pupil_f, pupil_lp = low_pass_pupil_f)
 
     return hdf5_file
+
+def convert_hdf_eye_to_tsv(hdf5_file, tsv_file = None, tr_key = 116.0, xy_intercepts = None, xy_slopes = None ):
+
+    from hedfpy import HDFEyeOperator
+    import tempfile
+    import os
+
+    alias = op.splitext(op.split(hdf5_file)[-1])[0]
+
+    ho = HDFEyeOperator(hdf5_file)
+    ho.open_hdf_file('a')
+    node = ho.h5f.get_node('/' + alias)
+    trial_data = node.trials.read()
+    events = node.events.read()
+
+    if tsv_file == None:
+        tempdir = tempfile.mkdtemp()
+        temp_tsv = op.join(tempdir, alias + '.tsv')
+    else:
+        temp_tsv = tsv_file
+
+    # find first TR, and use it to define:
+    # the duration of the datastream and the tr
+    tr_timestamps = events['EL_timestamp'][(events['key'] == tr_key) & (events['up_down'] == 'Down')]
+    tr = np.round(np.mean(np.diff(tr_timestamps)))
+
+    eye = ho.eye_during_trial(0, alias)
+    sample_rate = ho.sample_rate_during_period([tr_timestamps[0], tr_timestamps[-1] + tr], alias)
+
+    raw_data = ho.data_from_time_period([tr_timestamps[0], tr_timestamps[-1] + tr], alias)
+    selected_data = np.array(raw_data[['time', eye + '_gaze_x', eye + '_gaze_y', eye + '_pupil']])
+    
+    # some post-processing:
+    # time in seconds
+    selected_data[:,0] = (selected_data[:,0] - selected_data[0,0]) / float(sample_rate)
+    # linear gaze position scaling
+    if xy_intercepts != None and if xy_slopes != None:
+        for i in [1,2]
+            selected_data[:,i] = (selected_data[:,i] * xy_slopes[i-1]) + xy_intercepts[i-1]
+
+    np.savetxt(temp_tsv, selected_data, fmt = '%3.2f', delimiter = '\t', header="time   X   Y   pupil")
+    os.system('gzip ' + temp_tsv)
+
+    return temp_tsv + '.gz'
+
 
 def mask_nii_2_hdf5(in_files, mask_files, hdf5_file, folder_alias):
     """masks data in in_files with masks in mask_files,
@@ -94,6 +146,8 @@ def mask_nii_2_hdf5(in_files, mask_files, hdf5_file, folder_alias):
             print('Adding group ' + folder_alias + '_' + roi_name + ' to this file')
             run_group = h5file.create_group("/" + folder_alias, roi_name, folder_alias + '_' + roi_name)
         
+        h5file.create_array(run_group, roi_name, roi, roi_name + ' mask file for reconstituting nii data from masked data')
+
         for (nii_d, nii_name) in zip(nifti_data, nifti_names):
             if n_dims == 3:
                 these_roi_data = nii_d[roi]

@@ -122,6 +122,7 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
     input_node = pe.Node(IdentityInterface(fields=[
                 'in_files', 
                 'inplane_T2_files',
+                'T2_files_reg_matrices',
                 'output_directory', 
                 'which_file_is_EPI_space', 
                 'sub_id', 
@@ -168,6 +169,9 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
     select_T2_for_epi_node = pe.MapNode(Function(input_names=['epi_file', 'T2_file_list'], output_names=['which_T2_file'],
                                        function=select_T2_for_epi), name='select_T2_for_epi_node', iterfield = ['epi_file'])
 
+    select_T2_mat_for_epi_node = pe.MapNode(Function(input_names=['epi_file', 'T2_file_list'], output_names=['which_T2_file'],
+                                       function=select_T2_for_epi), name='select_T2_mat_for_epi_node', iterfield = ['epi_file'])    
+
     bet_T2_node = pe.MapNode(interface=
         fsl.BET(frac = analysis_info['T2_bet_f_value'], 
                 vertical_gradient = analysis_info['T2_bet_g_value'], 
@@ -196,9 +200,9 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
                                        function=_extend_motion_parameters), name='extend_motion_pars', iterfield = ['moco_par_file'])
 
     # registration node is set up for rigid-body within-modality reg
-    reg_flirt_N = pe.MapNode(fsl.FLIRT(cost_func='normcorr', output_type = 'NIFTI_GZ',# dof = 6, 
-                                        interp = 'sinc', schedule =  op.abspath(op.join(os.environ['FSLDIR'], 'etc', 'flirtsch', 'sch2D_6dof'))), 
-                        name = 'reg_flirt_N', iterfield = ['in_file'])
+    # reg_flirt_N = pe.MapNode(fsl.FLIRT(cost_func='normcorr', output_type = 'NIFTI_GZ',# dof = 6, schedule =  op.abspath(op.join(os.environ['FSLDIR'], 'etc', 'flirtsch', 'sch2D_6dof')), 
+    #                                     interp = 'sinc', dof = 6), 
+    #                     name = 'reg_flirt_N', iterfield = ['in_file'])
 
     regapply_moco_node = pe.MapNode(interface=
         fsl.ApplyXfm(interp = 'spline'), name='regapply_moco_node', iterfield=['in_file', 'in_matrix_file'])
@@ -235,12 +239,17 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
 
     # output node, for later saving
     # motion_correction_workflow.connect(mean_bold, 'out_file', output_node, 'EPI_space_file')
-    motion_correction_workflow.connect(select_target_T2_node, 'which_T2', output_node, 'EPI_space_file')
+    motion_correction_workflow.connect(select_target_T2_node, 'which_T2', output_node, 'T2_space_file')
 
     # find the relevant T2 files for each of the epi files
     motion_correction_workflow.connect(bet_epi_node, 'out_file', select_T2_for_epi_node, 'epi_file')
     motion_correction_workflow.connect(bet_T2_node, 'out_file', select_T2_for_epi_node, 'T2_file_list')
 
+
+    # find the relevant T2 registration file for each of the epi files
+    motion_correction_workflow.connect(bet_epi_node, 'out_file', select_T2_mat_for_epi_node, 'epi_file')
+    motion_correction_workflow.connect(input_node, 'T2_files_reg_matrices', select_T2_mat_for_epi_node, 'T2_file_list')
+    
     # motion correction across runs
     # motion_correction_workflow.connect(prereg_flirt_N, 'out_matrix_file', motion_correct_all, 'init')
     motion_correction_workflow.connect(bet_epi_node, 'out_file', motion_correct_all, 'in_file')
@@ -248,16 +257,16 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
     # motion_correction_workflow.connect(mean_bold, 'out_file', motion_correct_all, 'ref_file')
     
     # the registration
-    motion_correction_workflow.connect(select_T2_for_epi_node, 'which_T2_file', reg_flirt_N, 'in_file')
-    motion_correction_workflow.connect(select_target_T2_node, 'which_T2', reg_flirt_N, 'reference')
+    # motion_correction_workflow.connect(select_T2_for_epi_node, 'which_T2_file', reg_flirt_N, 'in_file')
+    # motion_correction_workflow.connect(select_target_T2_node, 'which_T2', reg_flirt_N, 'reference')
 
     # output of motion correction of all files
     motion_correction_workflow.connect(motion_correct_all, 'par_file', output_node, 'motion_correction_parameters')
     motion_correction_workflow.connect(motion_correct_all, 'out_file', regapply_moco_node, 'in_file')
 
-    motion_correction_workflow.connect(reg_flirt_N, 'out_matrix_file', regapply_moco_node, 'in_matrix_file')
+    # registration has already been done by hand. This registration matrix is in the datasource, and applied here.
+    motion_correction_workflow.connect(select_T2_mat_for_epi_node, 'which_T2_file', regapply_moco_node, 'in_matrix_file')
     motion_correction_workflow.connect(select_target_T2_node, 'which_T2', regapply_moco_node, 'reference')
-
 
     motion_correction_workflow.connect(regapply_moco_node, 'out_file', resample_epis, 'in_file')
     motion_correction_workflow.connect(resample_epis, 'out_file', output_node, 'motion_corrected_files')
@@ -266,6 +275,8 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
     motion_correction_workflow.connect(input_node, 'tr', extend_motion_pars, 'tr')
     motion_correction_workflow.connect(extend_motion_pars, 'ext_out_file', output_node, 'extended_motion_correction_parameters')
     motion_correction_workflow.connect(extend_motion_pars, 'new_out_file', output_node, 'new_motion_correction_parameters')
+
+    motion_correction_workflow.connect(rename, 'out_file', output_node, 'EPI_space_file')
 
     ########################################################################################
     # Plot the estimated motion parameters
@@ -301,7 +312,7 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
 
     motion_correction_workflow.connect(bet_T2_node, 'out_file', datasink, 'mcf.T2s')
     motion_correction_workflow.connect(motion_correct_all, 'out_file', datasink, 'mcf.hr_per_session')
-    motion_correction_workflow.connect(reg_flirt_N, 'out_file', datasink, 'mcf.T2_per_session')
+    # motion_correction_workflow.connect(reg_flirt_N, 'out_file', datasink, 'mcf.T2_per_session')
 
     return motion_correction_workflow
 
