@@ -302,9 +302,9 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
     all_calcarine_reward_workflow.connect(retr, 'outputspec.fig_file', datasink, 'phys.figs')
     all_calcarine_reward_workflow.connect(retr, 'outputspec.evs', datasink, 'phys.evs')
 
-    all_calcarine_reward_workflow.connect(fit_nuis, 'res_file', datasink, 'phys.res')
-    all_calcarine_reward_workflow.connect(fit_nuis, 'rsq_file', datasink, 'phys.rsq')
-    all_calcarine_reward_workflow.connect(fit_nuis, 'beta_file', datasink, 'phys.betas')
+    # all_calcarine_reward_workflow.connect(fit_nuis, 'res_file', datasink, 'phys.res')
+    # all_calcarine_reward_workflow.connect(fit_nuis, 'rsq_file', datasink, 'phys.rsq')
+    # all_calcarine_reward_workflow.connect(fit_nuis, 'beta_file', datasink, 'phys.betas')
 
     all_calcarine_reward_workflow.connect(masks_from_surface, 'outputspec.masks', datasink, 'masks')
 

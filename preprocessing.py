@@ -34,7 +34,7 @@ preprocessed_data_dir = '/home/shared/-2014/reward/new/'
 FS_subject_dir = os.path.join(raw_data_dir, 'FS_SJID')
 
 preprocess = True
-mask = True
+mask = False
 
 for si in range(1,7): # 
     sub_id, FS_ID = 'sub-00%i'%si, 'sub-00%i'%si
@@ -124,7 +124,7 @@ for si in range(1,7): #
 
         # write out the graph and run
         all_calcarine_reward_workflow.write_graph(opd + '.svg', format='svg', graph2use='colored', simple_form=False)
-        all_calcarine_reward_workflow.run('MultiProc', plugin_args={'n_procs': 24})
+        all_calcarine_reward_workflow.run('MultiProc', plugin_args={'n_procs': 30})
         # all_calcarine_reward_workflow.run()
 
     if mask:
