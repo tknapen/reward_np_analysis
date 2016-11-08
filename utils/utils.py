@@ -39,11 +39,35 @@ def convert_edf_2_hdf5(edf_file, low_pass_pupil_f = 6.0, high_pass_pupil_f = 0.0
 
     return hdf5_file
 
+def combine_eye_hdfs_to_nii_hdf(nii_hdf5_file, eye_hdf_filelist, new_alias = 'eye'):
+    import os.path as op
+    import tables as tb
+
+    nii_hf = tb.open_file(nii_hdf5_file, 'a') 
+    eye_hfs = [tb.open_file(ef, 'r') for ef in eye_hdf_filelist]
+    eye_group_names = [op.splitext(op.split(ef)[-1])[0] for ef in eye_hdf_filelist]
+
+    try:
+        nii_group = nii_hf.get_node("/", name = new_alias, classname='Group')
+    except tb.NoSuchNodeError:
+        print('Adding group ' + new_alias + ' to ' + nii_hdf5_file)
+        nii_group = nii_hf.create_group("/", new_alias, new_alias)
+
+    for ef, en in zip(eye_hfs, eye_group_names):
+        ef.copy_node(where = '/' + en, newparent = nii_group, newname = en, overwrite = True, recursive = True)
+
+    nii_hf.close()
+
+    return nii_hdf5_file
+
+
 def convert_hdf_eye_to_tsv(hdf5_file, tsv_file = None, xy_intercepts = None, xy_slopes = None ):
 
     from hedfpy import HDFEyeOperator
     import tempfile
     import os
+    import os.path as op
+    import numpy as np
 
     tr_key = 116.0
     alias = op.splitext(op.split(hdf5_file)[-1])[0]
@@ -72,8 +96,9 @@ def convert_hdf_eye_to_tsv(hdf5_file, tsv_file = None, xy_intercepts = None, xy_
     selected_data = np.array(raw_data[['time', eye + '_gaze_x', eye + '_gaze_y', eye + '_pupil']])
     
     # some post-processing:
-    # time in seconds
-    selected_data[:,0] = (selected_data[:,0] - selected_data[0,0]) / 1000.0,  # convert ms to s
+    # time in seconds, from first TR
+    selected_data[:,0] -= selected_data[0,0]
+    selected_data[:,0] /= 1000.0  # convert ms to s
     # linear gaze position scaling
     if (xy_intercepts != None) and (xy_slopes != None):
         for i in [1,2]:
@@ -84,210 +109,6 @@ def convert_hdf_eye_to_tsv(hdf5_file, tsv_file = None, xy_intercepts = None, xy_
 
     return temp_tsv + '.gz'
 
-def convert_unpredictable_trials_to_tsv(hdf5_file, tsv_file = None, reward_signal = 1.0 ):
-
-    from hedfpy import HDFEyeOperator
-    import tempfile
-    import os
-    import os.path as op
-    import numpy as np
-    import pandas as pd
-
-    tr_key = 116.0
-
-    alias = op.splitext(op.split(hdf5_file)[-1])[0]
-
-    ho = HDFEyeOperator(hdf5_file)
-    ho.open_hdf_file('a')
-    node = ho.h5f.get_node('/' + alias)
-    trial_phase_data = node.trial_phases.read()
-    events = node.events.read()
-    parameters = node.parameters.read()
-
-    if tsv_file == None:
-        tempdir = tempfile.mkdtemp()
-        temp_tsv = op.join(tempdir, alias + '.tsv')
-    else:
-        temp_tsv = tsv_file
-
-    # find first TR, and use it to define:
-    # the duration of the datastream and the tr
-    tr_timestamps = events['EL_timestamp'][(events['key'] == tr_key) & (events['up_down'] == 'Down')]
-    tr = np.round(np.mean(np.diff(tr_timestamps)))
-    sample_rate = ho.sample_rate_during_period([tr_timestamps[0], tr_timestamps[-1] + tr], alias)
-
-    run_onset_EL_time = tr_timestamps[0]
-
-    columns_df = ['sound', 'contrast', 'stim_eccentricity', 'orientation', 'mask_radius']
-    tp_value = 2.0
-
-    trial_phase_timestamps = np.array(trial_phase_data[trial_phase_data['trial_phase_index'] == tp_value]['trial_phase_EL_timestamp'])
-
-    trial_parameters = pd.DataFrame(parameters[columns_df].T)
-
-    # first, we re-code the parameters in terms of screen coordinates
-    # convert stim position from proportion of screen (1920, 124 cm distance on BoldScreen32) to dva
-    trial_parameters['stim_eccentricity'] = trial_parameters['stim_eccentricity'] * 11 # 11 degrees from fix to edge of screen
-    trial_parameters['mask_radius'] = trial_parameters['mask_radius'] * 22 / 1920 # 11 degrees from fix to edge of screen
-
-    # add the times at which stimuli and rewards were presented
-    which_trials_reward = np.array(trial_parameters['sound'] == reward_signal)
-    reward_times = np.zeros(len(trial_phase_timestamps))
-    # the sound was 800 ms delayed wrt the stimulus onset
-    reward_times[which_trials_reward] = \
-                (800.0 + trial_phase_timestamps[which_trials_reward] - tr_timestamps[0] ) / 1000.0
-
-    trial_parameters['reward_time'] = pd.Series(reward_times)
-    trial_parameters['stim_onset_time'] = pd.Series((trial_phase_timestamps - tr_timestamps[0] ) / 1000.0)
-
-    trial_parameters = trial_parameters.sort_values(by = 'stim_onset_time')
-
-    trial_parameters.to_csv(temp_tsv, sep = '\t', float_format = '%3.2f', header = True, index = False)
-
-    return temp_tsv
-
-def convert_predictable_trials_to_tsv(hdf5_file, tsv_file = None ):
-
-    from hedfpy import HDFEyeOperator
-    import tempfile
-    import os
-    import os.path as op
-    import numpy as np
-    import pandas as pd
-    import math
-
-    tr_key = 116.0
-
-    alias = op.splitext(op.split(hdf5_file)[-1])[0]
-
-    ho = HDFEyeOperator(hdf5_file)
-    ho.open_hdf_file('a')
-    node = ho.h5f.get_node('/' + alias)
-    trial_phase_data = node.trial_phases.read()
-    events = node.events.read()
-    parameters = node.parameters.read()
-
-    if tsv_file == None:
-        tempdir = tempfile.mkdtemp()
-        temp_tsv = op.join(tempdir, alias + '.tsv')
-    else:
-        temp_tsv = tsv_file
-
-    # find first TR, and use it to define:
-    # the duration of the datastream and the tr
-    tr_timestamps = events['EL_timestamp'][(events['key'] == tr_key) & (events['up_down'] == 'Down')]
-    tr = np.round(np.mean(np.diff(tr_timestamps)))
-    sample_rate = ho.sample_rate_during_period([tr_timestamps[0], tr_timestamps[-1] + tr], alias)
-
-    run_onset_EL_time = tr_timestamps[0]
-
-    columns_df = ['sound', 'contrast', 'x_position', 'orientation', 'mask_radius']
-    tp_value = 2.0
-
-    trial_phase_timestamps = np.array(trial_phase_data[trial_phase_data['trial_phase_index'] == tp_value]['trial_phase_EL_timestamp'])
-
-    trial_parameters = pd.DataFrame(parameters[columns_df].T)
-
-    # first, we re-code the parameters in terms of screen coordinates
-    # convert stim position from proportion of screen (1920, 124 cm distance on BoldScreen32) to dva
-    trial_parameters['x_position'] = trial_parameters['x_position'] * 11 # 11 degrees from fix to edge of screen
-    trial_parameters['mask_radius'] = trial_parameters['mask_radius'] * 22 / 1920 # 11 degrees from fix to edge of screen
-
-    # add the times at which stimuli and rewards were presented
-    which_trials_reward = np.array(trial_parameters['sound'] == 1)
-    reward_times = np.zeros(len(trial_phase_timestamps))
-    # the sound was 800 ms delayed wrt the stimulus onset
-    reward_times[which_trials_reward] = \
-                (800.0 + trial_phase_timestamps[which_trials_reward] - tr_timestamps[0] ) / 1000.0
-
-    trial_parameters['reward_time'] = pd.Series(reward_times)
-    trial_parameters['stim_onset_time'] = pd.Series((trial_phase_timestamps - tr_timestamps[0] ) / 1000.0)
-
-    trial_parameters = trial_parameters.sort_values(by = 'stim_onset_time')
-
-    trial_parameters.to_csv(temp_tsv, sep = '\t', float_format = '%3.2f', header = True, index = False)
-
-    return temp_tsv
-
-def convert_variable_trials_to_tsv(hdf5_file, tsv_file = None, reward_signal = 1.0 ):
-
-    from hedfpy import HDFEyeOperator
-    import tempfile
-    import os
-    import os.path as op
-    import numpy as np
-    import pandas as pd
-    import math
-
-    tr_key = 116.0
-
-    alias = op.splitext(op.split(hdf5_file)[-1])[0]
-
-    ho = HDFEyeOperator(hdf5_file)
-    ho.open_hdf_file('a')
-    node = ho.h5f.get_node('/' + alias)
-    trial_phase_data = node.trial_phases.read()
-    events = node.events.read()
-    parameters = node.parameters.read()
-
-    if tsv_file == None:
-        tempdir = tempfile.mkdtemp()
-        temp_tsv = op.join(tempdir, alias + '.tsv')
-    else:
-        temp_tsv = tsv_file
-
-    # find first TR, and use it to define:
-    # the duration of the datastream and the tr
-    tr_timestamps = events['EL_timestamp'][(events['key'] == tr_key) & (events['up_down'] == 'Down')]
-    tr = np.round(np.mean(np.diff(tr_timestamps)))
-    sample_rate = ho.sample_rate_during_period([tr_timestamps[0], tr_timestamps[-1] + tr], alias)
-
-    run_onset_EL_time = tr_timestamps[0]
-
-    columns_df = ['sound', 'contrast', 'stim_eccentricity', 'stim_orientation', 'mask_radius', 'reward_delay', 'which_stimulus_for_rgb_overlay']
-    tp_value = 2.0
-
-    trial_phase_timestamps = np.array(trial_phase_data[trial_phase_data['trial_phase_index'] == tp_value]['trial_phase_EL_timestamp'])
-
-    trial_parameters = pd.DataFrame(parameters[columns_df].T)
-
-    # first, we re-code the parameters in terms of screen coordinates
-    # convert stim position from proportion of screen (1920, 124 cm distance on BoldScreen32) to dva
-    trial_parameters['stim_eccentricity'] = trial_parameters['stim_eccentricity'] * 11 # 11 degrees from fix to edge of screen
-    trial_parameters['mask_radius'] = trial_parameters['mask_radius'] * 22 / 1920 # 11 degrees from fix to edge of screen
-
-    # the sound was 800 ms delayed wrt the stimulus onset
-    reward_times = trial_parameters['reward_delay'] + (trial_phase_timestamps - tr_timestamps[0] ) / 1000.0
-
-
-    # now, we need to re-code the probabilities. 
-    # first, we detect which feedback sound was the high-reward one. 
-    # we do this by looking at the 0-orientation trials, because
-    # there were no-stim reward trials, but no no-stim no-reward trials
-    which_sound_reward = np.array(trial_parameters['sound'])[np.array(np.array(trial_parameters['stim_orientation'] == 0.0))].mean()
-    which_trials_reward = np.array(trial_parameters['sound'] == which_sound_reward)
-    # now, we can find which orientations had which reward probability, since 
-    # the reward probability is not theoretical, but practical, on every run
-    orientations = np.sort(np.unique(np.array(trial_parameters['stim_orientation'])))
-    reward_probabilities = [(np.array(trial_parameters['sound'])[np.array(trial_parameters['stim_orientation'] == ori)] == which_sound_reward).mean() 
-                                for ori in orientations]
-
-    # and we use this to fill in the per-trial value for reward probability
-    reward_probs_per_trial = np.zeros(len(trial_phase_timestamps))
-    for ori, rp in zip(orientations, reward_probabilities):
-        reward_probs_per_trial[np.array(trial_parameters['stim_orientation'] == ori)] = rp
-    trial_parameters['reward_probability'] = pd.Series(reward_probs_per_trial)
- 
-    trial_parameters['feedback_time'] = pd.Series(reward_times)
-    trial_parameters['feedback_was_reward'] = pd.Series(np.array(which_trials_reward, dtype = np.int))
-
-    trial_parameters['stim_onset_time'] = pd.Series((trial_phase_timestamps - tr_timestamps[0] ) / 1000.0)
-
-    trial_parameters = trial_parameters.sort_values(by = 'stim_onset_time')
-
-    trial_parameters.to_csv(temp_tsv, sep = '\t', float_format = '%3.2f', header = True, index = False)
-
-    return temp_tsv
 
 def mask_nii_2_hdf5(in_files, mask_files, hdf5_file, folder_alias):
     """masks data in in_files with masks in mask_files,
@@ -325,21 +146,21 @@ def mask_nii_2_hdf5(in_files, mask_files, hdf5_file, folder_alias):
 
     success = True
 
-    mask_data = [nib.load(mf).get_data() for mf in mask_files]
+    mask_data = [np.array(nib.load(mf).get_data(), dtype = bool) for mf in mask_files]
     nifti_data = [nib.load(nf).get_data() for nf in in_files]
 
-    mask_names = [op.split(mf)[-1].split('.nii.gz')[0] for mf in mask_files]
-    nifti_names = [op.split(mf)[-1].split('.nii.gz')[0] for nf in in_files]
+    mask_names = [op.split(mf)[-1].split('_vol.nii.gz')[0] for mf in mask_files]
+    nifti_names = [op.split(nf)[-1].split('.nii.gz')[0] for nf in in_files]
 
-    data = nib.load(in_files[0])
+    data = nib.load(in_files[0]).get_data()
     dims = data.shape
     n_dims = data.ndim
 
-    h5file = tables.open_file(hdf5_file, mode = "w", title = hdf5_file)
+    h5file = tables.open_file(hdf5_file, mode = "a", title = hdf5_file)
     # get or make group for alias folder
     try:
         folder_alias_run_group = h5file.get_node("/", name = folder_alias, classname='Group')
-    except NoSuchNodeError:
+    except tables.NoSuchNodeError:
         print('Adding group ' + folder_alias + ' to this file')
         folder_alias_run_group = h5file.create_group("/", folder_alias, folder_alias)
 
@@ -347,13 +168,14 @@ def mask_nii_2_hdf5(in_files, mask_files, hdf5_file, folder_alias):
         # get or make group for alias/roi
         try:
             run_group = h5file.get_node(where = "/" + folder_alias, name = roi_name, classname='Group')
-        except NoSuchNodeError:
+        except tables.NoSuchNodeError:
             print('Adding group ' + folder_alias + '_' + roi_name + ' to this file')
             run_group = h5file.create_group("/" + folder_alias, roi_name, folder_alias + '_' + roi_name)
-        
+
         h5file.create_array(run_group, roi_name, roi, roi_name + ' mask file for reconstituting nii data from masked data')
 
         for (nii_d, nii_name) in zip(nifti_data, nifti_names):
+            print('roi: %s, nifti: %s'%(roi_name, nii_name))
             if n_dims == 3:
                 these_roi_data = nii_d[roi]
             elif n_dims == 4:   # timeseries data, last dimension is time.

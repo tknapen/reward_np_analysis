@@ -1,6 +1,6 @@
 def which_files_have_physio(all_input_files, 
                                 all_physio_files, 
-                                input_extension = '_bold_brain_mcf_flirt_maths.nii.gz', 
+                                input_extension = '_bold.nii.gz', 
                                 physio_extension = '_physio.log'):
     '''selects nifti files that have corresponding physio log files.
     Parameters
@@ -37,11 +37,38 @@ def which_files_have_physio(all_input_files,
     files_with_physio_ids = [fns_decap.index(ph) for ph in physio_fns_decap if ph in fns_decap]
     files_with_physio = [all_input_files[i] for i in files_with_physio_ids]
 
-    print all_input_files
-    print all_physio_files
-    print files_with_physio
-
     return files_with_physio
+
+def convert_behavior(hdf5_files, reward_signal_unpredictable):
+    '''convert all behavioral data from hdf5 files to .tsv files, 
+    for BIDS format. Returns one tsv file for each hdf5 file
+    
+    Parameters
+    ----------
+    hdf5_files : list
+        list of hdf5 filenames
+
+
+    '''    
+
+    from utils.behavior import convert_unpredictable_trials_to_tsv, \
+                                convert_predictable_trials_to_tsv, \
+                                convert_variable_trials_to_tsv, \
+                                convert_streamup_trials_to_tsv
+
+
+    tsv_files = []
+    for h5 in hdf5_files:
+        if 'stream-up' in h5:
+            tsv_files.append(convert_streamup_trials_to_tsv(hdf5_file = h5))
+        elif 'unpredictable' in h5:
+            tsv_files.append(convert_unpredictable_trials_to_tsv(hdf5_file = h5, reward_signal = reward_signal_unpredictable))
+        elif 'predictable' in h5:
+            tsv_files.append(convert_predictable_trials_to_tsv(hdf5_file = h5))
+        elif 'variable' in h5:
+            tsv_files.append(convert_variable_trials_to_tsv(hdf5_file = h5))
+
+    return tsv_files
 
 
 def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_calcarine_reward'):
@@ -55,7 +82,7 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
 
 
     # Importing of custom nodes from spynoza packages; assumes that spynoza is installed:
-    # pip install git+https://github.com/spinoza-centre/spynoza.git@master
+    # pip install git+https://github.com/spinoza-centre/spynoza.git@develop
     from spynoza.nodes.filtering import savgol_filter
     from spynoza.nodes.utils import get_scaninfo, pickfirst, percent_signal_change, average_over_runs, pickle_to_json, set_nifti_intercept_slope
     from spynoza.workflows.topup_unwarping import create_topup_workflow
@@ -67,6 +94,8 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
 
     from motion_correction import create_motion_correction_workflow
     from utils.utils import convert_edf_2_hdf5, mask_nii_2_hdf5
+    from utils.utils import convert_hdf_eye_to_tsv
+
 
 
 
@@ -103,8 +132,8 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
                                 physio='{sub_id}/{sess_id}/func/*.log',
                                 events='{sub_id}/{sess_id}/func/*.pickle',
                                 eye='{sub_id}/{sess_id}/func/*.edf',
-                                anat='{sub_id}/{sess_id}/anat/*_t2w.nii.gz',
-                                reg='{sub_id}/{sess_id}/anat/*_t2w.mat') # ,
+                                anat='{sub_id}/{sess_id}/anat/*_inplaneT2.nii.gz',
+                                reg='{sub_id}/{sess_id}/anat/*_inplaneT2.mat') # ,
     datasource = pe.Node(SelectFiles(datasource_templates, sort_filelist = True, raise_on_empty = False), 
         name = 'datasource')
 
@@ -153,6 +182,16 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
                                     function=convert_edf_2_hdf5),
                       name='edf_converter', iterfield=['edf_file'])
 
+    hdf_tsv_converter = pe.MapNode(Function(input_names=['hdf5_file'],
+                                    output_names=['tsv_file'],
+                                    function=convert_hdf_eye_to_tsv),
+                      name='hdf_tsv_converter', iterfield=['hdf5_file'])
+
+    behavior_tsv_converter = pe.Node(Function(input_names=['hdf5_files', 'reward_signal_unpredictable'],
+                                    output_names=['tsv_files'],
+                                    function=convert_behavior),
+                      name='behavior_tsv_converter')
+    behavior_tsv_converter.inputs.reward_signal_unpredictable = analysis_info['which_reward_sound_unpredictable']
 
     # node for datasinking
     datasink = pe.Node(DataSink(), name='sinker')
@@ -171,6 +210,11 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
 
     # behavioral pickle to json
     all_calcarine_reward_workflow.connect(datasource, 'events', pj, 'in_file')
+    all_calcarine_reward_workflow.connect(datasource, 'eye', edf_converter, 'edf_file')
+
+    all_calcarine_reward_workflow.connect(edf_converter, 'hdf5_file', hdf_tsv_converter, 'hdf5_file')
+    all_calcarine_reward_workflow.connect(edf_converter, 'hdf5_file', behavior_tsv_converter, 'hdf5_files')
+
     
     # motion correction, using T2 inplane anatomicals to prime 
     # the motion correction to the standard EPI space
@@ -208,7 +252,7 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
     retr = create_retroicor_workflow(name = 'retroicor', order_or_timing = analysis_info['retroicor_order_or_timing'])
 
     # select those nii files with physio
-    all_calcarine_reward_workflow.connect(motion_proc, 'outputspec.motion_corrected_files', physio_for_niis, 'all_input_files')
+    all_calcarine_reward_workflow.connect(datasource, 'func', physio_for_niis, 'all_input_files')
     all_calcarine_reward_workflow.connect(datasource, 'physio', physio_for_niis, 'all_physio_files')
     all_calcarine_reward_workflow.connect(physio_for_niis, 'files_with_physio', retr, 'inputspec.in_files')
 
@@ -250,9 +294,7 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
 
     # # sink out events and eyelink files
     all_calcarine_reward_workflow.connect(pj, 'out_file', datasink, 'events')
-    all_calcarine_reward_workflow.connect(datasource, 'eye', datasink, 'eye')
-    all_calcarine_reward_workflow.connect(datasource, 'eye', edf_converter, 'edf_file')
-
+    
     all_calcarine_reward_workflow.connect(sgfilter, 'out_file', datasink, 'tf')
     all_calcarine_reward_workflow.connect(psc, 'out_file', datasink, 'psc')
 
@@ -260,16 +302,15 @@ def create_all_calcarine_reward_preprocessing_workflow(analysis_info, name='all_
     all_calcarine_reward_workflow.connect(retr, 'outputspec.fig_file', datasink, 'phys.figs')
     all_calcarine_reward_workflow.connect(retr, 'outputspec.evs', datasink, 'phys.evs')
 
-    # all_calcarine_reward_workflow.connect(fit_nuis, 'res_file', datasink, 'phys.res')
-    # all_calcarine_reward_workflow.connect(fit_nuis, 'rsq_file', datasink, 'phys.rsq')
-    # all_calcarine_reward_workflow.connect(fit_nuis, 'beta_file', datasink, 'phys.betas')
+    all_calcarine_reward_workflow.connect(fit_nuis, 'res_file', datasink, 'phys.res')
+    all_calcarine_reward_workflow.connect(fit_nuis, 'rsq_file', datasink, 'phys.rsq')
+    all_calcarine_reward_workflow.connect(fit_nuis, 'beta_file', datasink, 'phys.betas')
 
-    # all_calcarine_reward_workflow.connect(masks_from_surface, 'outputspec.masks', datasink, 'masks')
-    
-    # all_calcarine_reward_workflow.connect(masks_from_surface, 'l2v.vol_label_file', hdf5_masker, 'mask_files')
-    # all_calcarine_reward_workflow.connect(psc, 'out_file', hdf5_masker, 'in_files')
-    # all_calcarine_reward_workflow.connect(hdf5_masker, 'hdf5_file', datasink, 'roi_data')
+    all_calcarine_reward_workflow.connect(masks_from_surface, 'outputspec.masks', datasink, 'masks')
 
+    all_calcarine_reward_workflow.connect(datasource, 'eye', datasink, 'eye')
     all_calcarine_reward_workflow.connect(edf_converter, 'hdf5_file', datasink, 'eye.h5')
+    all_calcarine_reward_workflow.connect(hdf_tsv_converter, 'tsv_file', datasink, 'eye.tsv')
+    all_calcarine_reward_workflow.connect(behavior_tsv_converter, 'tsv_files', datasink, 'events.tsv')
 
     return all_calcarine_reward_workflow

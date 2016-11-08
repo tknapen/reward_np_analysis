@@ -52,12 +52,12 @@ def select_target_epi(epi_file_list, T2_file_list, target_session, which_file):
 def select_T2_for_epi(epi_file, T2_file_list):
     import os.path as op
     epi_filename = op.split(epi_file)[-1]
-    T2_sessions = [op.split(T2)[-1].split('_t2w')[0] for T2 in T2_file_list]
+    T2_sessions = [op.split(T2)[-1].split('_inplaneT2')[0] for T2 in T2_file_list]
     which_T2_file = [T2 for (T2f, T2) in zip(T2_sessions, T2_file_list) if T2f in epi_filename][0]
 
     return which_T2_file
 
-def find_all_epis_for_inplane_anats(epi_file_list, inplane_anats, inplane_anat_suffix = '_t2w_brain.nii.gz'):
+def find_all_epis_for_inplane_anats(epi_file_list, inplane_anats, inplane_anat_suffix = '_inplaneT2_brain.nii.gz'):
     '''selects epi nifti files that correspond to the session of each of inplane_anats.
     Parameters
     ----------
@@ -303,7 +303,7 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
     motion_correction_workflow.connect(select_target_T2_node, 'which_T2', rename_T2, 'in_file')
     motion_correction_workflow.connect(rename_T2, 'out_file', datasink, 'reg.@T2')
 
-    motion_correction_workflow.connect(regapply_moco_node, 'out_file', datasink, 'mcf.hr')
+    # motion_correction_workflow.connect(regapply_moco_node, 'out_file', datasink, 'mcf.hr')
     motion_correction_workflow.connect(resample_epis, 'out_file', datasink, 'mcf')
     motion_correction_workflow.connect(motion_correct_all, 'par_file', datasink, 'mcf.motion_pars')
     motion_correction_workflow.connect(plot_motion, 'out_file', datasink, 'mcf.motion_plots')
@@ -311,7 +311,7 @@ def create_motion_correction_workflow(analysis_info, name = 'moco'):
     motion_correction_workflow.connect(extend_motion_pars, 'new_out_file', datasink, 'mcf.new_motion_pars')
 
     motion_correction_workflow.connect(bet_T2_node, 'out_file', datasink, 'mcf.T2s')
-    motion_correction_workflow.connect(motion_correct_all, 'out_file', datasink, 'mcf.hr_per_session')
+    # motion_correction_workflow.connect(motion_correct_all, 'out_file', datasink, 'mcf.hr_per_session')
     # motion_correction_workflow.connect(reg_flirt_N, 'out_file', datasink, 'mcf.T2_per_session')
 
     return motion_correction_workflow
