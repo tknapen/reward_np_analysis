@@ -33,10 +33,10 @@ raw_data_dir = '/home/raw_data/-2014/reward/human_reward/data/'
 preprocessed_data_dir = '/home/shared/-2014/reward/new/'
 FS_subject_dir = os.path.join(raw_data_dir, 'FS_SJID')
 
-preprocess = True
-mask = False
+preprocess = False
+mask = True
 
-for si in range(1,7): # 
+for si in range(5,7): # 
     sub_id, FS_ID = 'sub-00%i'%si, 'sub-00%i'%si
     sess_id = 'ses-*'
 
