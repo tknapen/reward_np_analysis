@@ -24,6 +24,7 @@ from IPython import embed as shell
 
 from workflows.preprocessing_pipeline import create_all_calcarine_reward_preprocessing_workflow
 from workflows.nii_to_h5 import create_all_calcarine_reward_2_h5_workflow
+from workflows.whole_brain_GLM import create_whole_brain_GLM_workflow
 
 # we will create a workflow from a BIDS formatted input, at first for the specific use case 
 # of a 7T PRF experiment's preprocessing. 
@@ -34,9 +35,10 @@ preprocessed_data_dir = '/home/shared/-2014/reward/new/'
 FS_subject_dir = os.path.join(raw_data_dir, 'FS_SJID')
 
 preprocess = False
-mask = True
+mask = False
+GLM = True
 
-for si in range(5,7): # 
+for si in range(1,7): # 
     sub_id, FS_ID = 'sub-00%i'%si, 'sub-00%i'%si
     sess_id = 'ses-*'
 
@@ -81,12 +83,14 @@ for si in range(5,7): #
         except OSError:
             pass
 
-    if preprocess:
+    # copy json files to preprocessed data folder
+    # this allows these parameters to be updated and synced across subjects by changing only the raw data files.
+    copyfile(os.path.join(raw_data_dir, 'acquisition_parameters.json'), os.path.join(preprocessed_data_dir, 'acquisition_parameters.json'), copy = True)
+    copyfile(os.path.join(raw_data_dir, 'analysis_parameters.json'), os.path.join(preprocessed_data_dir, 'analysis_parameters.json'), copy = True)
+    copyfile(os.path.join(raw_data_dir, sub_id ,'experimental_parameters.json'), os.path.join(preprocessed_data_dir, sub_id ,'experimental_parameters.json'), copy = True)
 
-        # copy json files to preprocessed data folder
-        copyfile(os.path.join(raw_data_dir, 'acquisition_parameters.json'), os.path.join(preprocessed_data_dir, 'acquisition_parameters.json'), copy = True)
-        copyfile(os.path.join(raw_data_dir, 'analysis_parameters.json'), os.path.join(preprocessed_data_dir, 'analysis_parameters.json'), copy = True)
-        copyfile(os.path.join(raw_data_dir, sub_id ,'experimental_parameters.json'), os.path.join(preprocessed_data_dir, sub_id ,'experimental_parameters.json'), copy = True)
+
+    if preprocess:
 
         # the actual workflow
         all_calcarine_reward_workflow = create_all_calcarine_reward_preprocessing_workflow(analysis_info, name = 'all_calcarine_reward')
@@ -135,3 +139,12 @@ for si in range(5,7): #
 
         n2h.write_graph(opd + '_h5.svg', format='svg', graph2use='colored', simple_form=False)
         n2h.run()
+
+    if GLM:
+        glm_wf = create_whole_brain_GLM_workflow(analysis_info)
+        glm_wf.inputs.inputspec.sub_id = sub_id
+        glm_wf.inputs.inputspec.preprocessed_directory = preprocessed_data_dir
+
+        glm_wf.write_graph(opd + '_GLM.svg', format='svg', graph2use='colored', simple_form=False)
+        glm_wf.run()
+

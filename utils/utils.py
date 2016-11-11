@@ -39,6 +39,17 @@ def convert_edf_2_hdf5(edf_file, low_pass_pupil_f = 6.0, high_pass_pupil_f = 0.0
 
     return hdf5_file
 
+def reset_TR(in_file, TR = 1.5):
+    import nibabel as nib
+
+    nif = nib.load(in_file)
+    old_TR = nif.header['pixdim'][4]
+    if old_TR != TR:
+        nif.header['pixdim'][4] = TR
+    nib.save(nif, in_file)
+
+    return 
+
 def combine_eye_hdfs_to_nii_hdf(nii_hdf5_file, eye_hdf_filelist, new_alias = 'eye'):
     import os.path as op
     import tables as tb

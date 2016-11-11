@@ -10,8 +10,7 @@ def fit_glm_nuisances_single_file(
                         method = 'ICA', 
                         mapper = 'unpredictable', 
                         dm_upscale_factor = 10,
-                        tsv_behavior_file = '',
-                        out_folder = ''
+                        tsv_behavior_file = ''
                         ):
     """Performs a per-slice GLM on nifti-file in_file, 
     with per-slice regressors from slice_regressor_list of nifti files,
@@ -50,6 +49,9 @@ def fit_glm_nuisances_single_file(
     from scipy.stats import t
     from spynoza.nodes.utils import get_scaninfo
     from hrf_estimation.hrf import spmt, dspmt, ddspmt
+    import tempfile
+
+    out_folder = tempfile.mkdtemp()
 
     func_nii = nib.load(in_file)
     TR, dims, dyns, voxsize, affine = get_scaninfo(in_file)
@@ -82,6 +84,7 @@ def fit_glm_nuisances_single_file(
         reg_center_cs = np.array([fftconvolve(reg_center, kernel)[::dm_upscale_factor] for kernel in kernels])
         reg_surround_cs = np.array([fftconvolve(reg_surround, kernel)[::dm_upscale_factor] for kernel in kernels])
 
+        # normalize regressor amplitude
         reg_center_cs = (reg_center_cs.T/reg_center_cs.std(axis = -1)).T
         reg_surround_cs = (reg_surround_cs.T/reg_surround_cs.std(axis = -1)).T
 
@@ -92,10 +95,39 @@ def fit_glm_nuisances_single_file(
         visual_dm = np.vstack((np.ones((1,dyns)), reg_center, reg_surround))
         visual_dm_shape = visual_dm.shape[0]
 
-    else:
-        print('Design %s not yet implemented...'%mapper)
-        # so, just the intercept is the 'visual_dm'
-        visual_dm = np.ones((1,dyns))
+    elif mapper == 'predictable':
+        this_run_events = pd.read_csv(tsv_behavior_file, delimiter = '\t')
+
+        # stim position bools
+        left_stim_events = this_run_events.x_position < 0
+        right_stim_events = this_run_events.x_position > 0
+        # stim orientation bools
+        cw_stim_events = this_run_events.orientation > 0
+        ccw_stim_events = this_run_events.orientation < 0
+
+        raw_dm = np.zeros((4, dyns*dm_upscale_factor))
+        conv_dm = np.zeros((4, 3, dyns))
+
+        # times for 4 types of stimuli
+        event_times = np.round(np.array([
+            np.array(this_run_events.stim_onset_time[left_stim_events & cw_stim_events]),
+            np.array(this_run_events.stim_onset_time[left_stim_events & ccw_stim_events]),
+            np.array(this_run_events.stim_onset_time[right_stim_events & cw_stim_events]),
+            np.array(this_run_events.stim_onset_time[right_stim_events & ccw_stim_events])
+            ]) * dm_upscale_factor / TR).astype(np.int32)
+        # convolve, subsample and reshape
+        for x in range(4):
+            raw_dm[x,event_times[x]] = 1
+            for i,kernel in enumerate(kernels):
+                cr = fftconvolve(raw_dm[x], kernel)[::dm_upscale_factor]
+                conv_dm[x,i] = cr[:dyns]
+        conv_dm = conv_dm.reshape((-1,dyns))
+
+        # normalize regressor amplitude
+        conv_dm = (conv_dm.T/conv_dm.std(axis = -1)).T
+
+        # the resulting visual design matrix
+        visual_dm = np.vstack((np.ones((1,dyns)), conv_dm))
         visual_dm_shape = visual_dm.shape[0]
 
     # data containers
@@ -192,8 +224,9 @@ def fit_glm_nuisances_single_file(
     p_file = os.path.abspath(os.path.join(out_folder, os.path.split(in_file)[1][:-7] + '_logp.nii.gz'))
     nib.save(p_img, p_file)
 
+    output_files = [res_file, rsq_file, beta_file, T_file, p_file]
     # return paths
-    return res_file, rsq_file, beta_file, T_file, p_file
+    return output_files
 
 
 def fit_FIR_nuisances_all_files(
@@ -203,8 +236,7 @@ def fit_FIR_nuisances_all_files(
                         vol_regressor_list = '', 
                         behavior_file_list = '', 
                         fir_frequency = 2,
-                        fir_interval = [-3.0,15.0],
-                        out_folder = ''
+                        fir_interval = [-3.0,15.0]
                         ):
     """Performs a per-slice FIR deconvolution on nifti-files in_files, 
     with per-slice regressors from slice_regressor_list of nifti files,
@@ -241,6 +273,9 @@ def fit_FIR_nuisances_all_files(
     import pandas as pd
     from spynoza.nodes.utils import get_scaninfo
     from fir import FIRDeconvolution
+    import tempfile
+
+    out_folder = tempfile.mkdtemp()
 
     func_niis = [nib.load(in_file) for in_file in in_files]
     TR, dims, dyns, voxsize, affine = get_scaninfo(in_files[0])
@@ -360,7 +395,7 @@ def fit_FIR_nuisances_all_files(
     output_files.append(rsq_file)
 
     # return paths
-    return tuple(output_files)
+    return output_files
 
 
 
