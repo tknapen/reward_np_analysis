@@ -49,12 +49,14 @@ def fit_glm_nuisances_single_file(
     from scipy.stats import t
     from spynoza.nodes.utils import get_scaninfo
     from hrf_estimation.hrf import spmt, dspmt, ddspmt
+    import pandas as pd
     import tempfile
 
     out_folder = tempfile.mkdtemp()
 
     func_nii = nib.load(in_file)
     TR, dims, dyns, voxsize, affine = get_scaninfo(in_file)
+    header = func_nii.header
 
     kernels = [eval(func + '(np.linspace(0,25, dm_upscale_factor*25/TR, endpoint = False))') for func in ['spmt', 'dspmt', 'ddspmt']]
 
@@ -204,32 +206,34 @@ def fit_glm_nuisances_single_file(
         print("slice %d finished nuisance GLM for %s"%(x, in_file))
 
     # save files
-    residual_img = nib.Nifti1Image(np.nan_to_num(residual_data), affine)
+    residual_img = nib.Nifti1Image(np.nan_to_num(residual_data), affine=affine, header=header)
     res_file = os.path.abspath(os.path.join(out_folder, os.path.split(in_file)[1][:-7] + '_res.nii.gz'))
     nib.save(residual_img, res_file)
     
-    rsq_img = nib.Nifti1Image(np.nan_to_num(rsq_data), affine)
+    rsq_img = nib.Nifti1Image(np.nan_to_num(rsq_data), affine=affine, header=header)
     rsq_file = os.path.abspath(os.path.join(out_folder, os.path.split(in_file)[1][:-7] + '_rsq.nii.gz'))
     nib.save(rsq_img, rsq_file)
 
-    beta_img = nib.Nifti1Image(np.nan_to_num(beta_data), affine)
+    beta_img = nib.Nifti1Image(np.nan_to_num(beta_data), affine=affine, header=header)
     beta_file = os.path.abspath(os.path.join(out_folder, os.path.split(in_file)[1][:-7] + '_betas.nii.gz'))
     nib.save(beta_img, beta_file)
 
-    T_img = nib.Nifti1Image(np.nan_to_num(T_data), affine)
+    T_img = nib.Nifti1Image(np.nan_to_num(T_data), affine=affine, header=header)
     T_file = os.path.abspath(os.path.join(out_folder, os.path.split(in_file)[1][:-7] + '_T.nii.gz'))
     nib.save(T_img, T_file)
 
-    p_img = nib.Nifti1Image(np.nan_to_num(p_data), affine)
+    p_img = nib.Nifti1Image(np.nan_to_num(p_data), affine=affine, header=header)
     p_file = os.path.abspath(os.path.join(out_folder, os.path.split(in_file)[1][:-7] + '_logp.nii.gz'))
     nib.save(p_img, p_file)
 
-    output_files = [res_file, rsq_file, beta_file, T_file, p_file]
+    out_files = [res_file, rsq_file, beta_file, T_file, p_file]
+    print("saved nuisance GLM results as %s"%(str(out_files)))
     # return paths
-    return output_files
+    return out_files
 
 
 def fit_FIR_nuisances_all_files(
+                        experiment, 
                         example_func,
                         in_files, 
                         slice_regressor_lists = [], 
@@ -270,63 +274,174 @@ def fit_FIR_nuisances_all_files(
     import numpy.linalg as LA
     import scipy as sp
     import os
+    import os.path as op
     import pandas as pd
     from spynoza.nodes.utils import get_scaninfo
     from fir import FIRDeconvolution
     import tempfile
 
+    if len(in_files) == 0:
+        print 'FIR of experiment {} not performed for lack of input files'.format(experiment)
+        return
+
     out_folder = tempfile.mkdtemp()
 
     func_niis = [nib.load(in_file) for in_file in in_files]
-    TR, dims, dyns, voxsize, affine = get_scaninfo(in_files[0])
+    # the first file is longer in one or two subjects, so we take the scaninfo of the second file
+    TR, dims, dyns, voxsize, affine = get_scaninfo(in_files[1]) 
+    header = func_niis[0].header
+
+    slice_times = np.linspace(0,TR,dims[-2], endpoint=False)
 
     mask = nib.load(example_func).get_data() > 0 
 
-    # import data and convert nans to numbers
-    func_data = np.nan_to_num(np.concatenate([func_nii.get_data().T for func_nii in func_niis]).T)
-    
+    # import data for the duration of all the files ([...,:dyns])
+    func_data = np.concatenate([func_nii.get_data()[...,:dyns].T for func_nii in func_niis]).T
+    # print 'func_data.shape = ' + str(func_data.shape) + ' for exp: ' + experiment
+    # print 'dyns = ' + str(dyns) + ' for exp: ' + experiment
+
+    nr_physio_regressors = len(slice_regressor_lists[0])
     if slice_regressor_lists != []:
-        nr_physio_regressors = len(slice_regressor_lists[0])
         all_slice_reg = np.zeros((nr_physio_regressors,dims[-2],func_data.shape[-1]))
         for x in range(len(slice_regressor_lists)):
             # fill the regressor array from files
             for i in range(len(slice_regressor_lists[x])):
-                all_slice_reg[i,:,x*dyns:(x+1)*dyns] = nib.load(slice_regressor_lists[x][i]).get_data().squeeze()
+                srd = nib.load(slice_regressor_lists[x][i]).get_data()[...,:dyns]
+                # print 'srd.shape %i = '%i + str(srd.shape) + ' for exp: ' + experiment
+                all_slice_reg[i,:,x*dyns:(x+1)*dyns] = srd.squeeze()
+
 
     if vol_regressor_list != []:
         all_vol_regs = []
         nr_vol_regressors = np.loadtxt(vol_regressor_list[0]).shape[-1]
         all_vol_reg = np.zeros((nr_vol_regressors, func_data.shape[-1]))
         for x in range(len(vol_regressor_list)):
-            all_vol_reg[:,x*dyns:(x+1)*dyns] = np.loadtxt(vol_regressor_list[x]).T
+            all_vol_reg[:,x*dyns:(x+1)*dyns] = np.loadtxt(vol_regressor_list[x]).T[...,:dyns]
 
-    event_names = ['visual_reward', 'fixation_reward', 'visual_no_reward', 'fixation_no_reward']
-    # get the behavior and format event times and gains for FIR
-    all_behav_event_times = {en:[] 
-                for en in event_names}
+    # per-experiment implementation of event types and times:
+    if (experiment == 'unpredictable') | (experiment == 'stream-up'):
+        event_names = ['visual_reward', 'fixation_reward', 'visual_no_reward', 'fixation_no_reward']
+        # get the behavior and format event times and gains for FIR
+        all_behav_event_times = {en:[] 
+                    for en in event_names}
 
-    for x in range(len(behavior_file_list)):
-        this_run_events = pd.read_csv(behavior_file_list[x], delimiter='\t')
+        for x in range(len(behavior_file_list)):
+            this_run_events = pd.read_csv(behavior_file_list[x], delimiter='\t')
 
-        reward_events = (this_run_events.reward_time != 0)
-        stim_events = (this_run_events.contrast != 0)
+            reward_events = (this_run_events.reward_time != 0)
+            stim_events = (this_run_events.contrast != 0)
 
-        visual_reward_times = np.array(this_run_events.stim_onset_time[reward_events & stim_events]) + x * dyns * TR
-        fixation_reward_times = np.array(this_run_events.stim_onset_time[reward_events & -stim_events]) + x * dyns * TR
-        visual_no_reward_times = np.array(this_run_events.stim_onset_time[-reward_events & stim_events]) + x * dyns * TR
-        fixation_no_reward_times = np.array(this_run_events.stim_onset_time[-reward_events & -stim_events]) + x * dyns * TR
+            visual_reward_times = np.array(this_run_events.stim_onset_time[reward_events & stim_events]) + x * dyns * TR
+            fixation_reward_times = np.array(this_run_events.stim_onset_time[reward_events & -stim_events]) + x * dyns * TR
+            visual_no_reward_times = np.array(this_run_events.stim_onset_time[-reward_events & stim_events]) + x * dyns * TR
+            fixation_no_reward_times = np.array(this_run_events.stim_onset_time[-reward_events & -stim_events]) + x * dyns * TR
 
-        # these are the times to be saved.
-        all_behav_event_times['visual_reward'].append(visual_reward_times)
-        all_behav_event_times['fixation_reward'].append(fixation_reward_times)
-        all_behav_event_times['visual_no_reward'].append(visual_no_reward_times)
-        all_behav_event_times['fixation_no_reward'].append(fixation_no_reward_times)
+            # these are the times to be saved.
+            all_behav_event_times['visual_reward'].append(visual_reward_times)
+            all_behav_event_times['fixation_reward'].append(fixation_reward_times)
+            all_behav_event_times['visual_no_reward'].append(visual_no_reward_times)
+            all_behav_event_times['fixation_no_reward'].append(fixation_no_reward_times)
 
-    # set the times up as a 1-D array
-    all_behav_event_times['visual_reward'] = np.concatenate(all_behav_event_times['visual_reward'])
-    all_behav_event_times['fixation_reward'] = np.concatenate(all_behav_event_times['fixation_reward'])
-    all_behav_event_times['visual_no_reward'] = np.concatenate(all_behav_event_times['visual_no_reward'])
-    all_behav_event_times['fixation_no_reward'] = np.concatenate(all_behav_event_times['fixation_no_reward'])
+        # set the times up as a 1-D array
+        all_behav_event_times['visual_reward'] = np.concatenate(all_behav_event_times['visual_reward'])
+        all_behav_event_times['fixation_reward'] = np.concatenate(all_behav_event_times['fixation_reward'])
+        all_behav_event_times['visual_no_reward'] = np.concatenate(all_behav_event_times['visual_no_reward'])
+        all_behav_event_times['fixation_no_reward'] = np.concatenate(all_behav_event_times['fixation_no_reward'])
+
+    elif experiment == 'predictable':
+        event_names = ['left_cw', 'left_ccw', 'right_cw', 'right_ccw', 'fixation_no_reward', 'fixation_reward']
+        # get the behavior and format event times and gains for FIR
+        all_behav_event_times = {en:[] 
+                    for en in event_names}
+
+        for x in range(len(behavior_file_list)):
+            this_run_events = pd.read_csv(behavior_file_list[x], delimiter='\t')
+
+            fixation_reward_events = (this_run_events.reward_time != 0) & (this_run_events.contrast == 0)
+            fixation_no_reward_events = (this_run_events.reward_time == 0) & (this_run_events.contrast == 0)
+            # stim position bools
+            left_stim_events = this_run_events.x_position < 0
+            right_stim_events = this_run_events.x_position > 0
+            # stim orientation bools
+            cw_stim_events = this_run_events.orientation > 0
+            ccw_stim_events = this_run_events.orientation < 0
+
+            # the four stimulus classes
+            all_stim_events = [
+                                np.array(this_run_events[left_stim_events & cw_stim_events].stim_onset_time) + x * dyns * TR,     # L_CW
+                                np.array(this_run_events[left_stim_events & ccw_stim_events].stim_onset_time) + x * dyns * TR,    # L_CCW
+                                np.array(this_run_events[right_stim_events & cw_stim_events].stim_onset_time) + x * dyns * TR,    # R_CW
+                                np.array(this_run_events[right_stim_events & ccw_stim_events].stim_onset_time) + x * dyns * TR,   # R_CCW
+                                np.array(this_run_events[fixation_no_reward_events].stim_onset_time) + x * dyns * TR,             # fixation_no_reward
+                                np.array(this_run_events[fixation_reward_events].stim_onset_time) + x * dyns * TR,                # fixation_reward
+                                ]
+
+            for name, times in zip(event_names, all_stim_events):
+                all_behav_event_times[name].append(times)
+
+            # which stimulus is rewarded
+            if x == 0: # only investigate this for the first run
+                stim_rew_events = np.array(this_run_events[(this_run_events.reward_time != 0) & (this_run_events.contrast != 0)].stim_onset_time) + x * dyns * TR
+
+                which_event_name_rewarded = [event_names[i] for i, ev in enumerate(all_stim_events[:4]) 
+                                                if ev[0] == stim_rew_events[0]][0]
+                rewarded_location, rewarded_orientation = which_event_name_rewarded.split('_')
+
+                # secondary names for event types, depending on rewarded location and orientation
+                rename_dict = {}
+                for i in range(4):
+                    condition_string = ''
+                    if event_names[i].split('_')[0] == rewarded_location:
+                        condition_string += 'rewarded_location'
+                    else:
+                        condition_string += 'nonrewarded_location'
+                    condition_string += '-'
+                    if event_names[i].split('_')[1] == rewarded_orientation:
+                        condition_string += 'rewarded_orientation'
+                    else:
+                        condition_string += 'nonrewarded_orientation'
+                    rename_dict.update({event_names[i]: condition_string})
+
+        # set the times up as a 1-D array
+        for name in event_names:
+                all_behav_event_times[name] = np.concatenate(all_behav_event_times[name])
+
+    elif experiment == 'variable':
+        event_names = ['75S', '75+', '75-', '50S', '50+', '50-', '25S', '25+', '25-', 'fixation_reward']
+        # get the behavior and format event times and gains for FIR
+        all_behav_event_times = {en:[] 
+                    for en in event_names}
+
+        for x in range(len(behavior_file_list)):
+            this_run_events = pd.read_csv(behavior_file_list[x], delimiter='\t')
+
+            # which trials lacked a stimulus, with a reward tone
+            fixation_reward_events = (this_run_events.feedback_time != 0) & (this_run_events.contrast == 0)
+            # percentage bools for trials
+            HR_stim_trials = this_run_events.reward_probability == 0.75
+            MR_stim_trials = this_run_events.reward_probability == 0.5
+            LR_stim_trials = this_run_events.reward_probability == 0.25
+            # feedback bools for trials
+            R_trials = this_run_events.feedback_was_reward == 1
+            NR_trials = this_run_events.feedback_was_reward == 0
+
+            # the times
+            all_behav_event_times['fixation_reward'].append(np.array(this_run_events[fixation_reward_events].feedback_time) + x * dyns * TR)
+
+            all_behav_event_times['75S'].append(np.array(this_run_events[HR_stim_trials].stim_onset_time) + x * dyns * TR)
+            all_behav_event_times['75+'].append(np.array(this_run_events[HR_stim_trials & R_trials].feedback_time) + x * dyns * TR)
+            all_behav_event_times['75-'].append(np.array(this_run_events[HR_stim_trials & NR_trials].feedback_time) + x * dyns * TR)
+
+            all_behav_event_times['50S'].append(np.array(this_run_events[MR_stim_trials].stim_onset_time) + x * dyns * TR)
+            all_behav_event_times['50+'].append(np.array(this_run_events[MR_stim_trials & R_trials].feedback_time) + x * dyns * TR)
+            all_behav_event_times['50-'].append(np.array(this_run_events[MR_stim_trials & NR_trials].feedback_time) + x * dyns * TR)
+
+            all_behav_event_times['25S'].append(np.array(this_run_events[LR_stim_trials].stim_onset_time) + x * dyns * TR)
+            all_behav_event_times['25+'].append(np.array(this_run_events[LR_stim_trials & R_trials].feedback_time) + x * dyns * TR)
+            all_behav_event_times['25-'].append(np.array(this_run_events[LR_stim_trials & NR_trials].feedback_time) + x * dyns * TR)
+
+        for name in event_names:
+                all_behav_event_times[name] = np.concatenate(all_behav_event_times[name])
 
     # data containers
     rsq_data = np.zeros(list(dims[:-1]))
@@ -342,11 +457,17 @@ def fit_FIR_nuisances_all_files(
     for x in range(dims[-2]):
         slice_data = func_data[:,:,x,:]
         slice_data = slice_data[mask[:,:,x]].reshape((-1,func_data.shape[-1]))
-                
+        slice_data = np.nan_to_num(slice_data)
+
         # fix the design matrix
-        nuisance_regressors = all_slice_reg[:,x,:]
-        if vol_regressor_list != '':
-            nuisance_regressors = np.vstack((nuisance_regressors, all_vol_reg))
+        if nr_physio_regressors > 0:
+            if vol_regressor_list != '':
+                nuisance_regressors = np.vstack((all_slice_reg[:,x,:], all_vol_reg))
+            else:
+                nuisance_regressors = all_slice_reg[:,x,:]
+        else:   # assuming we'll always have either moco or physio nuisances
+            nuisance_regressors = all_vol_reg
+
         nuisance_regressors = np.nan_to_num(nuisance_regressors)
 
         # normalize regressors
@@ -354,9 +475,9 @@ def fit_FIR_nuisances_all_files(
 
         fd = FIRDeconvolution(
             signal = slice_data, 
-            events = [all_behav_event_times[en] for en in event_names], # dictate order
+            events = [all_behav_event_times[en] - slice_times[x] for en in event_names], # dictate order
             event_names = event_names, 
-            sample_frequency = 1.0/1.5,
+            sample_frequency = 1.0/TR,
             deconvolution_frequency = fir_frequency,
             deconvolution_interval = fir_interval
             )
@@ -371,31 +492,67 @@ def fit_FIR_nuisances_all_files(
 
         # fit
         fd.regress(method = 'lstsq')
-
         fd.calculate_rsq()
 
         for en in event_names:
             fir_timecourses[en][mask[:,:,x],x] = np.nan_to_num(fd.betas_for_cov(en).T)
          # reshape and save
-        rsq_data[mask[:,:,x],x] = np.nan_to_num(fd.rsq) # .reshape((dims[0], dims[1]))
+        rsq_data[mask[:,:,x],x] = np.nan_to_num(fd.rsq) 
 
-        print("slice %d finished nuisance FIR"%x)
+        print("slice %d finished nuisance FIR for experiment %s"%(x, experiment))
 
-    output_files = []
+    out_files = []
     # save files
     for en in event_names:
-        event_fir_img = nib.Nifti1Image(np.nan_to_num(fir_timecourses[en]), affine)
+        event_fir_img = nib.Nifti1Image(np.nan_to_num(fir_timecourses[en]), affine=affine, header=header)
         event_fir_file = os.path.abspath(os.path.join(out_folder, os.path.split(in_files[0])[1][:-7] + '_{0}.nii.gz'.format(en)))
         nib.save(event_fir_img, event_fir_file)
-        output_files.append(event_fir_file)
-    
-    rsq_img = nib.Nifti1Image(np.nan_to_num(rsq_data), affine)
+        out_files.append(event_fir_file)
+
+    # renamed files for rewarded stimulus
+    if experiment == 'predictable':
+        for en in rename_dict.keys():
+            event_fir_img = nib.Nifti1Image(np.nan_to_num(fir_timecourses[en]), affine=affine, header=header)
+            event_fir_file = os.path.abspath(os.path.join(out_folder, os.path.split(in_files[0])[1][:-7] + '_{0}.nii.gz'.format(rename_dict[en])))
+            nib.save(event_fir_img, event_fir_file)
+            out_files.append(event_fir_file)
+
+        # we choose the 'reference' stimulus, i.e. the one that has the same location as the rewarded stimulus
+        reference_stimulus = [en for en in event_names[:4] if rename_dict[en] == 'rewarded_location-nonrewarded_orientation'][0]
+        # the 'all_reward' timecourse is the average response to reward regardless of stimulus presence.
+        reward_fir_timecourses = (np.nan_to_num(fir_timecourses[which_event_name_rewarded]) - np.nan_to_num(fir_timecourses[reference_stimulus])) + \
+                            (np.nan_to_num(fir_timecourses['fixation_reward']) - np.nan_to_num(fir_timecourses['fixation_no_reward']))
+        reward_fir_img = nib.Nifti1Image(reward_fir_timecourses / 2.0, affine=affine, header=header)
+        reward_fir_file = os.path.abspath(os.path.join(out_folder, os.path.split(in_files[0])[1][:-7] + '_{0}.nii.gz'.format('all_reward')))
+        nib.save(reward_fir_img, reward_fir_file)
+        out_files.append(reward_fir_file)
+
+    if (experiment == 'unpredictable') | (experiment == 'stream-up'):
+        # create reward time-course from earlier results
+        # the 'all_reward' timecourse is the average response to reward regardless of stimulus presence.
+        reward_fir_timecourses = (np.nan_to_num(fir_timecourses['visual_reward']) + np.nan_to_num(fir_timecourses['fixation_reward'])) - \
+                            (np.nan_to_num(fir_timecourses['visual_no_reward']) + np.nan_to_num(fir_timecourses['fixation_no_reward']))
+        reward_fir_img = nib.Nifti1Image(reward_fir_timecourses / 2.0, affine=affine, header=header)
+        reward_fir_file = os.path.abspath(os.path.join(out_folder, os.path.split(in_files[0])[1][:-7] + '_{0}.nii.gz'.format('all_reward')))
+        nib.save(reward_fir_img, reward_fir_file)
+        out_files.append(reward_fir_file)
+
+        # the 'all_stim' timecourse is the average response to stimulus regardless of reward.
+        stim_fir_timecourses = (np.nan_to_num(fir_timecourses['visual_reward']) + np.nan_to_num(fir_timecourses['visual_no_reward'])) - \
+                            (np.nan_to_num(fir_timecourses['fixation_reward']) + np.nan_to_num(fir_timecourses['fixation_no_reward']))
+        stim_fir_img = nib.Nifti1Image(stim_fir_timecourses / 2.0, affine=affine, header=header)
+        stim_fir_file = os.path.abspath(os.path.join(out_folder, os.path.split(in_files[0])[1][:-7] + '_{0}.nii.gz'.format('all_stim')))
+        nib.save(stim_fir_img, stim_fir_file)
+        out_files.append(stim_fir_file)
+
+    rsq_img = nib.Nifti1Image(np.nan_to_num(rsq_data), affine=affine, header=header)
     rsq_file = os.path.abspath(os.path.join(out_folder, os.path.split(in_files[0])[1][:-7] + '_rsq.nii.gz'))
     nib.save(rsq_img, rsq_file)
-    output_files.append(rsq_file)
+    out_files.append(rsq_file)
 
+    print("saved nuisance FIR results as %s"%(str(out_files)))
     # return paths
-    return output_files
+    return out_files
 
 
 
@@ -405,25 +562,24 @@ class FIRTestCase(unittest.TestCase):
         # standard test path and subject
         test_path = '/home/shared/-2014/reward/new/'
         test_sj = 'sub-001'
-        self.example_func = op.join(test_path, test_sj, 'reg', 'example_func.nii.gz')
+        example_func = op.join(test_path, test_sj, 'reg', 'example_func.nii.gz')
         # input files
-        self.in_files = glob.glob(op.join(test_path, test_sj, 'psc/*unpredictable_reward*.nii.gz'))
-        self.in_files.sort()
+        in_files = glob.glob(op.join(test_path, test_sj, 'psc/*-variable_*_reward*.nii.gz'))
+        in_files.sort()
         # physio nuisance files
-        self.slice_regressor_lists = [glob.glob(op.join(test_path, test_sj, 'phys/evs/*unpredictable_reward_{0}_*.nii.gz').format(x)) 
-                                for x in range(1,len(in_files)+1)]        
-        for sl in self.slice_regressor_lists:
+        slice_regressor_list = glob.glob(op.join(test_path, test_sj, 'phys/evs/*-variable_*_reward_*.nii.gz'))
+        for sl in slice_regressor_lists:
             sl.sort()
         # moco nuisance files
-        self.vol_regressor_list = glob.glob(op.join(test_path, test_sj, 'mcf/ext_motion_pars/*unpredictable_reward*.par'))
-        self.vol_regressor_list.sort()
+        vol_regressor_list = glob.glob(op.join(test_path, test_sj, 'mcf/ext_motion_pars/*-variable_*_reward*.par'))
+        vol_regressor_list.sort()
         # behavior files
-        self.behavior_file_list = glob.glob(op.join(test_path, test_sj, 'events/tsv/*unpredictable_reward*.tsv'))
-        self.behavior_file_list.sort()
+        behavior_file_list = glob.glob(op.join(test_path, test_sj, 'events/tsv/*-variable_*_reward*.tsv'))
+        behavior_file_list.sort()
 
     def runTest(self):
         fit_FIR_nuisances_all_files(
-            example_func = self.example_func
+            example_func = self.example_func,
             in_files = self.in_files,
             slice_regressor_lists = self.slice_regressor_lists,
             vol_regressor_list = self.vol_regressor_list,

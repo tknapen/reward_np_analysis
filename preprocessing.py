@@ -52,8 +52,8 @@ for si in range(1,7): #
     config.update_config({  'logging': {
                                         'log_directory': op.join(opd, 'log'),
                                         'log_to_file': True,
-                                        'workflow_level': 'DEBUG',
-                                        'interface_level': 'DEBUG'
+                                        'workflow_level': 'INFO',
+                                        'interface_level': 'INFO'
                                       },
                             'execution': {
                                         'stop_on_first_crash': False
@@ -146,5 +146,5 @@ for si in range(1,7): #
         glm_wf.inputs.inputspec.preprocessed_directory = preprocessed_data_dir
 
         glm_wf.write_graph(opd + '_GLM.svg', format='svg', graph2use='colored', simple_form=False)
-        glm_wf.run()
+        glm_wf.run('MultiProc', plugin_args={'n_procs': 6})
 
