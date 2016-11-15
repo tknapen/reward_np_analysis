@@ -66,6 +66,7 @@ def combine_eye_hdfs_to_nii_hdf(nii_hdf5_file, eye_hdf_filelist, new_alias = 'ey
 
     for ef, en in zip(eye_hfs, eye_group_names):
         ef.copy_node(where = '/' + en, newparent = nii_group, newname = en, overwrite = True, recursive = True)
+        ef.close()
 
     nii_hf.close()
 
@@ -118,6 +119,7 @@ def convert_hdf_eye_to_tsv(hdf5_file, tsv_file = None, xy_intercepts = None, xy_
     np.savetxt(temp_tsv, selected_data, fmt = '%3.3f', delimiter = '\t', header="time   X   Y   pupil")
     os.system('gzip ' + temp_tsv)
 
+    ho.h5f.close()
     return temp_tsv + '.gz'
 
 
@@ -125,7 +127,7 @@ def mask_nii_2_hdf5(in_files, mask_files, hdf5_file, folder_alias):
     """masks data in in_files with masks in mask_files,
     to be stored in an hdf5 file
 
-    Takes a list of 4D fMRI nifti-files and masks the
+    Takes a list of 3D or 4D fMRI nifti-files and masks the
     data with all masks in the list of nifti-files mask_files.
     These files are assumed to represent the same space, i.e.
     that of the functional acquisitions. 
@@ -163,10 +165,6 @@ def mask_nii_2_hdf5(in_files, mask_files, hdf5_file, folder_alias):
     mask_names = [op.split(mf)[-1].split('_vol.nii.gz')[0] for mf in mask_files]
     nifti_names = [op.split(nf)[-1].split('.nii.gz')[0] for nf in in_files]
 
-    data = nib.load(in_files[0]).get_data()
-    dims = data.shape
-    n_dims = data.ndim
-
     h5file = tables.open_file(hdf5_file, mode = "a", title = hdf5_file)
     # get or make group for alias folder
     try:
@@ -187,6 +185,7 @@ def mask_nii_2_hdf5(in_files, mask_files, hdf5_file, folder_alias):
 
         for (nii_d, nii_name) in zip(nifti_data, nifti_names):
             print('roi: %s, nifti: %s'%(roi_name, nii_name))
+            n_dims = len(nii_d.shape)
             if n_dims == 3:
                 these_roi_data = nii_d[roi]
             elif n_dims == 4:   # timeseries data, last dimension is time.
@@ -231,6 +230,7 @@ def roi_data_from_hdf(data_types_wildcards, roi_name_wildcard, hdf5_file, folder
     """
     import tables
     import itertools
+    import fnmatch
 
     h5file = tables.open_file(hdf5_file, mode = "r")
 
@@ -256,7 +256,8 @@ def roi_data_from_hdf(data_types_wildcards, roi_name_wildcard, hdf5_file, folder
             print('No data corresponding to ' + roi_name + ' in group ' + folder_alias)
             pass
         all_data_array_names = h5file.list_nodes(where = '/' + folder_alias + '/' + roi_name)
-        data_array_names = [[dan for dan in all_data_array_names if dtwc in dan and dtwc + '_' not in dan] for dtwd in data_types_wildcards]
+        # data_array_names = [[dan for dan in all_data_array_names if dtwc in dan and dtwc + '_' not in dan] for dtwc in data_types_wildcards]
+        data_array_names = [fnmatch.filter(data_array_names, dtwc) for dtwc in data_types_wildcards]
         data_array_names = list(itertools.chain(*data_array_names))
         
         if sort_data_types:
@@ -272,6 +273,8 @@ def roi_data_from_hdf(data_types_wildcards, roi_name_wildcard, hdf5_file, folder
                 data_arrays[-1].append(eval('roi_node.' + dan + '.read()'))
 
     all_roi_data_np = np.hstack(all_roi_data).T
+
+    h5file.close()
 
     return all_roi_data_np
 

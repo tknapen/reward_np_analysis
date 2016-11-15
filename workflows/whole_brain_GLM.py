@@ -19,7 +19,7 @@ def create_whole_brain_GLM_workflow(analysis_info, name = 'GLM'):
     from nipype.interfaces.io import SelectFiles, DataSink
 
     from utils.GLM import fit_glm_nuisances_single_file, fit_FIR_nuisances_all_files
-
+    imports = ['from utils.behavior import behavior_timing']
 
     input_node = pe.Node(IdentityInterface(
                             fields=['preprocessed_directory', 
@@ -108,8 +108,9 @@ def create_whole_brain_GLM_workflow(analysis_info, name = 'GLM'):
                                             'fir_interval'
                                             ],
                                 output_names=['out_files'],
-                                function=fit_FIR_nuisances_all_files),
-                                name='unpredictable_FIR')
+                                function=fit_FIR_nuisances_all_files,
+                                imports=imports),
+                                name='unpredictable_FIR',)
     unpredictable_FIR.inputs.fir_frequency = analysis_info['fir_frequency']
     unpredictable_FIR.inputs.fir_interval = analysis_info['fir_interval']
     unpredictable_FIR.inputs.experiment = 'unpredictable'
@@ -125,7 +126,8 @@ def create_whole_brain_GLM_workflow(analysis_info, name = 'GLM'):
                                             'fir_interval'
                                             ],
                                 output_names=['out_files'],
-                                function=fit_FIR_nuisances_all_files),
+                                function=fit_FIR_nuisances_all_files,
+                                imports=imports),
                                 name='predictable_FIR')
     predictable_FIR.inputs.fir_frequency = analysis_info['fir_frequency']
     predictable_FIR.inputs.fir_interval = analysis_info['fir_interval']
@@ -143,7 +145,8 @@ def create_whole_brain_GLM_workflow(analysis_info, name = 'GLM'):
                                             'fir_interval'
                                             ],
                                 output_names=['out_files'],
-                                function=fit_FIR_nuisances_all_files),
+                                function=fit_FIR_nuisances_all_files,
+                                imports=imports),
                                 name='variable_FIR')
     variable_FIR.inputs.fir_frequency = analysis_info['fir_frequency']
     variable_FIR.inputs.fir_interval = analysis_info['fir_interval']

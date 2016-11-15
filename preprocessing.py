@@ -35,8 +35,8 @@ preprocessed_data_dir = '/home/shared/-2014/reward/new/'
 FS_subject_dir = os.path.join(raw_data_dir, 'FS_SJID')
 
 preprocess = False
-mask = False
 GLM = True
+mask = True
 
 for si in range(1,7): # 
     sub_id, FS_ID = 'sub-00%i'%si, 'sub-00%i'%si
@@ -128,8 +128,16 @@ for si in range(1,7): #
 
         # write out the graph and run
         all_calcarine_reward_workflow.write_graph(opd + '.svg', format='svg', graph2use='colored', simple_form=False)
-        all_calcarine_reward_workflow.run('MultiProc', plugin_args={'n_procs': 30})
+        all_calcarine_reward_workflow.run('MultiProc', plugin_args={'n_procs': 24})
         # all_calcarine_reward_workflow.run()
+
+    if GLM:
+        glm_wf = create_whole_brain_GLM_workflow(analysis_info)
+        glm_wf.inputs.inputspec.sub_id = sub_id
+        glm_wf.inputs.inputspec.preprocessed_directory = preprocessed_data_dir
+
+        glm_wf.write_graph(opd + '_GLM.svg', format='svg', graph2use='colored', simple_form=False)
+        glm_wf.run('MultiProc', plugin_args={'n_procs': 6})
 
     if mask:
         n2h = create_all_calcarine_reward_2_h5_workflow(analysis_info, name='all_calcarine_reward_nii_2_h5')
@@ -139,12 +147,4 @@ for si in range(1,7): #
 
         n2h.write_graph(opd + '_h5.svg', format='svg', graph2use='colored', simple_form=False)
         n2h.run()
-
-    if GLM:
-        glm_wf = create_whole_brain_GLM_workflow(analysis_info)
-        glm_wf.inputs.inputspec.sub_id = sub_id
-        glm_wf.inputs.inputspec.preprocessed_directory = preprocessed_data_dir
-
-        glm_wf.write_graph(opd + '_GLM.svg', format='svg', graph2use='colored', simple_form=False)
-        glm_wf.run('MultiProc', plugin_args={'n_procs': 6})
 

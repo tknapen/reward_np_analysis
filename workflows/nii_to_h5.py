@@ -19,6 +19,7 @@ def create_all_calcarine_reward_2_h5_workflow(analysis_info, name='all_calcarine
     datasource_templates = dict(mcf='{sub_id}/mcf/*.nii.gz',
                                 psc='{sub_id}/psc/*.nii.gz',
                                 tf='{sub_id}/tf/*.nii.gz',
+                                GLM='{sub_id}/GLM/*.nii.gz',
                                 eye='{sub_id}/eye/h5/*.h5',
                                 rois='{sub_id}/roi/*_vol.nii.gz'
                                 ) 
@@ -41,6 +42,11 @@ def create_all_calcarine_reward_2_h5_workflow(analysis_info, name='all_calcarine
                                     function = mask_nii_2_hdf5), 
                                     name = 'hdf5_mcf_masker')
     hdf5_mcf_masker.inputs.folder_alias = 'mcf'
+
+    hdf5_GLM_masker = pe.Node(Function(input_names = ['in_files', 'mask_files', 'hdf5_file', 'folder_alias'], output_names = ['hdf5_file'],
+                                    function = mask_nii_2_hdf5), 
+                                    name = 'hdf5_GLM_masker')
+    hdf5_GLM_masker.inputs.folder_alias = 'GLM'
 
     eye_hdfs_to_nii_masker = pe.Node(Function(input_names = ['nii_hdf5_file', 'eye_hdf_filelist', 'new_alias'], output_names = ['nii_hdf5_file'],
                                     function = combine_eye_hdfs_to_nii_hdf), 
@@ -72,7 +78,11 @@ def create_all_calcarine_reward_2_h5_workflow(analysis_info, name='all_calcarine
     all_calcarine_reward_nii_2_h5_workflow.connect(datasource, 'mcf', hdf5_mcf_masker, 'in_files')
     all_calcarine_reward_nii_2_h5_workflow.connect(datasource, 'rois', hdf5_mcf_masker, 'mask_files')
 
-    all_calcarine_reward_nii_2_h5_workflow.connect(hdf5_mcf_masker, 'hdf5_file', eye_hdfs_to_nii_masker, 'nii_hdf5_file')
+    all_calcarine_reward_nii_2_h5_workflow.connect(datasource, 'GLM', hdf5_GLM_masker, 'in_files')
+    all_calcarine_reward_nii_2_h5_workflow.connect(datasource, 'rois', hdf5_GLM_masker, 'mask_files')
+    all_calcarine_reward_nii_2_h5_workflow.connect(hdf5_mcf_masker, 'hdf5_file', hdf5_GLM_masker, 'hdf5_file')
+
+    all_calcarine_reward_nii_2_h5_workflow.connect(hdf5_GLM_masker, 'hdf5_file', eye_hdfs_to_nii_masker, 'nii_hdf5_file')
     all_calcarine_reward_nii_2_h5_workflow.connect(datasource, 'eye', eye_hdfs_to_nii_masker, 'eye_hdf_filelist')
 
     all_calcarine_reward_nii_2_h5_workflow.connect(eye_hdfs_to_nii_masker, 'nii_hdf5_file', datasink, 'h5')

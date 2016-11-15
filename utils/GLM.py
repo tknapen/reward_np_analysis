@@ -279,6 +279,7 @@ def fit_FIR_nuisances_all_files(
     from spynoza.nodes.utils import get_scaninfo
     from fir import FIRDeconvolution
     import tempfile
+    # from .behavior import behavior_timing
 
     if len(in_files) == 0:
         print 'FIR of experiment {} not performed for lack of input files'.format(experiment)
@@ -318,130 +319,8 @@ def fit_FIR_nuisances_all_files(
         for x in range(len(vol_regressor_list)):
             all_vol_reg[:,x*dyns:(x+1)*dyns] = np.loadtxt(vol_regressor_list[x]).T[...,:dyns]
 
-    # per-experiment implementation of event types and times:
-    if (experiment == 'unpredictable') | (experiment == 'stream-up'):
-        event_names = ['visual_reward', 'fixation_reward', 'visual_no_reward', 'fixation_no_reward']
-        # get the behavior and format event times and gains for FIR
-        all_behav_event_times = {en:[] 
-                    for en in event_names}
-
-        for x in range(len(behavior_file_list)):
-            this_run_events = pd.read_csv(behavior_file_list[x], delimiter='\t')
-
-            reward_events = (this_run_events.reward_time != 0)
-            stim_events = (this_run_events.contrast != 0)
-
-            visual_reward_times = np.array(this_run_events.stim_onset_time[reward_events & stim_events]) + x * dyns * TR
-            fixation_reward_times = np.array(this_run_events.stim_onset_time[reward_events & -stim_events]) + x * dyns * TR
-            visual_no_reward_times = np.array(this_run_events.stim_onset_time[-reward_events & stim_events]) + x * dyns * TR
-            fixation_no_reward_times = np.array(this_run_events.stim_onset_time[-reward_events & -stim_events]) + x * dyns * TR
-
-            # these are the times to be saved.
-            all_behav_event_times['visual_reward'].append(visual_reward_times)
-            all_behav_event_times['fixation_reward'].append(fixation_reward_times)
-            all_behav_event_times['visual_no_reward'].append(visual_no_reward_times)
-            all_behav_event_times['fixation_no_reward'].append(fixation_no_reward_times)
-
-        # set the times up as a 1-D array
-        all_behav_event_times['visual_reward'] = np.concatenate(all_behav_event_times['visual_reward'])
-        all_behav_event_times['fixation_reward'] = np.concatenate(all_behav_event_times['fixation_reward'])
-        all_behav_event_times['visual_no_reward'] = np.concatenate(all_behav_event_times['visual_no_reward'])
-        all_behav_event_times['fixation_no_reward'] = np.concatenate(all_behav_event_times['fixation_no_reward'])
-
-    elif experiment == 'predictable':
-        event_names = ['left_cw', 'left_ccw', 'right_cw', 'right_ccw', 'fixation_no_reward', 'fixation_reward']
-        # get the behavior and format event times and gains for FIR
-        all_behav_event_times = {en:[] 
-                    for en in event_names}
-
-        for x in range(len(behavior_file_list)):
-            this_run_events = pd.read_csv(behavior_file_list[x], delimiter='\t')
-
-            fixation_reward_events = (this_run_events.reward_time != 0) & (this_run_events.contrast == 0)
-            fixation_no_reward_events = (this_run_events.reward_time == 0) & (this_run_events.contrast == 0)
-            # stim position bools
-            left_stim_events = this_run_events.x_position < 0
-            right_stim_events = this_run_events.x_position > 0
-            # stim orientation bools
-            cw_stim_events = this_run_events.orientation > 0
-            ccw_stim_events = this_run_events.orientation < 0
-
-            # the four stimulus classes
-            all_stim_events = [
-                                np.array(this_run_events[left_stim_events & cw_stim_events].stim_onset_time) + x * dyns * TR,     # L_CW
-                                np.array(this_run_events[left_stim_events & ccw_stim_events].stim_onset_time) + x * dyns * TR,    # L_CCW
-                                np.array(this_run_events[right_stim_events & cw_stim_events].stim_onset_time) + x * dyns * TR,    # R_CW
-                                np.array(this_run_events[right_stim_events & ccw_stim_events].stim_onset_time) + x * dyns * TR,   # R_CCW
-                                np.array(this_run_events[fixation_no_reward_events].stim_onset_time) + x * dyns * TR,             # fixation_no_reward
-                                np.array(this_run_events[fixation_reward_events].stim_onset_time) + x * dyns * TR,                # fixation_reward
-                                ]
-
-            for name, times in zip(event_names, all_stim_events):
-                all_behav_event_times[name].append(times)
-
-            # which stimulus is rewarded
-            if x == 0: # only investigate this for the first run
-                stim_rew_events = np.array(this_run_events[(this_run_events.reward_time != 0) & (this_run_events.contrast != 0)].stim_onset_time) + x * dyns * TR
-
-                which_event_name_rewarded = [event_names[i] for i, ev in enumerate(all_stim_events[:4]) 
-                                                if ev[0] == stim_rew_events[0]][0]
-                rewarded_location, rewarded_orientation = which_event_name_rewarded.split('_')
-
-                # secondary names for event types, depending on rewarded location and orientation
-                rename_dict = {}
-                for i in range(4):
-                    condition_string = ''
-                    if event_names[i].split('_')[0] == rewarded_location:
-                        condition_string += 'rewarded_location'
-                    else:
-                        condition_string += 'nonrewarded_location'
-                    condition_string += '-'
-                    if event_names[i].split('_')[1] == rewarded_orientation:
-                        condition_string += 'rewarded_orientation'
-                    else:
-                        condition_string += 'nonrewarded_orientation'
-                    rename_dict.update({event_names[i]: condition_string})
-
-        # set the times up as a 1-D array
-        for name in event_names:
-                all_behav_event_times[name] = np.concatenate(all_behav_event_times[name])
-
-    elif experiment == 'variable':
-        event_names = ['75S', '75+', '75-', '50S', '50+', '50-', '25S', '25+', '25-', 'fixation_reward']
-        # get the behavior and format event times and gains for FIR
-        all_behav_event_times = {en:[] 
-                    for en in event_names}
-
-        for x in range(len(behavior_file_list)):
-            this_run_events = pd.read_csv(behavior_file_list[x], delimiter='\t')
-
-            # which trials lacked a stimulus, with a reward tone
-            fixation_reward_events = (this_run_events.feedback_time != 0) & (this_run_events.contrast == 0)
-            # percentage bools for trials
-            HR_stim_trials = this_run_events.reward_probability == 0.75
-            MR_stim_trials = this_run_events.reward_probability == 0.5
-            LR_stim_trials = this_run_events.reward_probability == 0.25
-            # feedback bools for trials
-            R_trials = this_run_events.feedback_was_reward == 1
-            NR_trials = this_run_events.feedback_was_reward == 0
-
-            # the times
-            all_behav_event_times['fixation_reward'].append(np.array(this_run_events[fixation_reward_events].feedback_time) + x * dyns * TR)
-
-            all_behav_event_times['75S'].append(np.array(this_run_events[HR_stim_trials].stim_onset_time) + x * dyns * TR)
-            all_behav_event_times['75+'].append(np.array(this_run_events[HR_stim_trials & R_trials].feedback_time) + x * dyns * TR)
-            all_behav_event_times['75-'].append(np.array(this_run_events[HR_stim_trials & NR_trials].feedback_time) + x * dyns * TR)
-
-            all_behav_event_times['50S'].append(np.array(this_run_events[MR_stim_trials].stim_onset_time) + x * dyns * TR)
-            all_behav_event_times['50+'].append(np.array(this_run_events[MR_stim_trials & R_trials].feedback_time) + x * dyns * TR)
-            all_behav_event_times['50-'].append(np.array(this_run_events[MR_stim_trials & NR_trials].feedback_time) + x * dyns * TR)
-
-            all_behav_event_times['25S'].append(np.array(this_run_events[LR_stim_trials].stim_onset_time) + x * dyns * TR)
-            all_behav_event_times['25+'].append(np.array(this_run_events[LR_stim_trials & R_trials].feedback_time) + x * dyns * TR)
-            all_behav_event_times['25-'].append(np.array(this_run_events[LR_stim_trials & NR_trials].feedback_time) + x * dyns * TR)
-
-        for name in event_names:
-                all_behav_event_times[name] = np.concatenate(all_behav_event_times[name])
+    # behavior
+    event_names, all_behav_event_times, rename_dict, which_event_name_rewarded = behavior_timing(experiment, behavior_file_list, dyns, TR)
 
     # data containers
     rsq_data = np.zeros(list(dims[:-1]))
