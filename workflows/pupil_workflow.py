@@ -5,7 +5,11 @@ def create_pupil_workflow(analysis_info, name = 'pupil'):
 
     from utils.pupil import fit_FIR_pupil_files
 
-    imports = ['from utils.behavior import behavior_timing']
+    imports = ['from utils.behavior import behavior_timing',
+        'from utils.plotting import plot_fir_results_unpredictable',
+        'from utils.plotting import plot_fir_results_predictable',
+        'from utils.plotting import plot_fir_results_variable',
+    ]
 
     input_node = pe.Node(IdentityInterface(
                             fields=['preprocessed_directory', 
@@ -126,11 +130,11 @@ def create_pupil_workflow(analysis_info, name = 'pupil'):
     pupil_analysis_workflow.connect(input_node, 'preprocessed_directory', datasink, 'base_directory')
     pupil_analysis_workflow.connect(input_node, 'sub_id', datasink, 'container')
 
-    pupil_analysis_workflow.connect(unpredictable_pupil_FIR, 'out_figures', datasink, 'pupil.unpredictable_pupil_FIR')
-    pupil_analysis_workflow.connect(predictable_pupil_FIR, 'out_figures', datasink, 'pupil.predictable_pupil_FIR')
-    pupil_analysis_workflow.connect(variable_pupil_FIR, 'out_figures', datasink, 'pupil.variable_pupil_FIR')
+    pupil_analysis_workflow.connect(unpredictable_pupil_FIR, 'out_figures', datasink, 'pupil.@unpredictable_pupil_FIR')
+    pupil_analysis_workflow.connect(predictable_pupil_FIR, 'out_figures', datasink, 'pupil.@predictable_pupil_FIR')
+    pupil_analysis_workflow.connect(variable_pupil_FIR, 'out_figures', datasink, 'pupil.@variable_pupil_FIR')
 
-
+    return pupil_analysis_workflow
 
 
 

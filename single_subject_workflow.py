@@ -85,8 +85,9 @@ for si in range(1,7): #
     copyfile(os.path.join(raw_data_dir, 'analysis_parameters.json'), os.path.join(preprocessed_data_dir, 'analysis_parameters.json'), copy = True)
     copyfile(os.path.join(raw_data_dir, sub_id ,'experimental_parameters.json'), os.path.join(preprocessed_data_dir, sub_id ,'experimental_parameters.json'), copy = True)
 
-    pwf = create_pupil_workflow(analysis_info ,'pupil')
-    pwf.inputs.inputspec.sub_id = sub_id
-    pwf.inputs.inputspec.preprocessed_directory = preprocessed_data_dir
+    if pupil:
+        pwf = create_pupil_workflow(analysis_info,'pupil')
+        pwf.inputs.inputspec.sub_id = sub_id
+        pwf.inputs.inputspec.preprocessed_directory = preprocessed_data_dir
 
-    pwf.run('MultiProc', plugin_args={'n_procs': 6})
+        pwf.run('MultiProc', plugin_args={'n_procs': 6})

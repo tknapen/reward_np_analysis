@@ -231,6 +231,7 @@ def roi_data_from_hdf(data_types_wildcards, roi_name_wildcard, hdf5_file, folder
     import tables
     import itertools
     import fnmatch
+    import numpy as np
 
     h5file = tables.open_file(hdf5_file, mode = "r")
 
@@ -239,40 +240,39 @@ def roi_data_from_hdf(data_types_wildcards, roi_name_wildcard, hdf5_file, folder
     except NoSuchNodeError:
         # import actual data
         print('No group ' + folder_alias + ' in this file')
-        return None
+        # return None
 
 
     all_roi_names = h5file.list_nodes(where = '/' + folder_alias, classname = 'Group')
-    roi_names = [rn for rn in all_roi_names if roi_name_wildcard in rn]
+    roi_names = [rn._v_name for rn in all_roi_names if roi_name_wildcard in rn._v_name]
     if len(roi_names) == 0:
-        print('No rois corresponding to ' + roi_wildcard + ' in group ' + folder_alias)
-        return None
+        print('No rois corresponding to ' + roi_name_wildcard + ' in group ' + folder_alias)
+        # return None
     
     data_arrays = []
-    for rn in roi_names:
+    for roi_name in roi_names:
         try:
             roi_node = h5file.get_node(where = '/' + folder_alias, name = roi_name, classname='Group')
-        except NoSuchNodeError:
+        except tables.NoSuchNodeError:
             print('No data corresponding to ' + roi_name + ' in group ' + folder_alias)
             pass
         all_data_array_names = h5file.list_nodes(where = '/' + folder_alias + '/' + roi_name)
-        # data_array_names = [[dan for dan in all_data_array_names if dtwc in dan and dtwc + '_' not in dan] for dtwc in data_types_wildcards]
-        data_array_names = [fnmatch.filter(data_array_names, dtwc) for dtwc in data_types_wildcards]
-        data_array_names = list(itertools.chain(*data_array_names))
+        data_array_names = [adan._v_name for adan in all_data_array_names]
+        selected_data_array_names = list(itertools.chain(*[fnmatch.filter(data_array_names, dtwc) for dtwc in data_types_wildcards]))
         
-        if sort_data_types:
-            data_array_names = sorted(data_array_names)
-
+        # if sort_data_types:
+        selected_data_array_names = sorted(selected_data_array_names)
         if len(data_array_names) == 0:
-            print('No data corresponding to ' + str(data_types_wildcards) + ' in group ' + folder_alias + '/' + rn)
+            print('No data corresponding to ' + str(selected_data_array_names) + ' in group /' + folder_alias + '/' + roi_name)
             pass
         else:
-            print('Taking data corresponding to ' + str(data_array_names) + ' from group ' + folder_alias + '/' + rn)
+            print('Taking data corresponding to ' + str(selected_data_array_names) + ' from group /' + folder_alias + '/' + roi_name)
             data_arrays.append([])
-            for dan in data_array_names:
-                data_arrays[-1].append(eval('roi_node.' + dan + '.read()'))
+            for dan in selected_data_array_names:
+                data_arrays[-1].append(eval('roi_node.__getattr__("' + dan + '").read()'))
 
-    all_roi_data_np = np.hstack(all_roi_data).T
+            data_arrays[-1] = np.hstack(data_arrays[-1]) # stack across timepoints or other values per voxel
+    all_roi_data_np = np.vstack(data_arrays)    # stack across regions to create a single array of voxels by values (i.e. timepoints)
 
     h5file.close()
 
