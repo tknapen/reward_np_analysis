@@ -75,9 +75,6 @@ def fit_FIR_pupil_files(
 
     ho = HDFEyeOperator(h5_file)
     
-    # run_nr_samples = TR * dyns * fir_frequency
-    # pupil_data = np.zeros((run_nr_samples * len(aliases)))
-
     pupil_data = []    
 
     for x, alias in enumerate(aliases):
@@ -107,17 +104,13 @@ def fit_FIR_pupil_files(
         else:
             run_signal[:selected_data.shape[0]] = selected_data
 
-        # pupil_data[x*run_nr_samples:(x+1)*run_nr_samples] = run_signal
         pupil_data.append(run_signal)
     pupil_data = np.concatenate(pupil_data)
 
-    # resample by hand to fir_frequency
-    # pupil_data = pupil_data[::(sample_rate/fir_frequency)]
-
     if method == 'fir':
         fd = FIRDeconvolution(
-                            signal = pupil_data[::(sample_rate/fir_frequency)], 
-                            events = [all_behav_event_times[en] for en in event_names], # dictate order
+                            signal = pupil_data[::(sample_rate/fir_frequency)],             # downsampled when used as argument
+                            events = [all_behav_event_times[en] for en in event_names],     # dictate order
                             event_names = event_names, 
                             sample_frequency = fir_frequency,
                             deconvolution_frequency = fir_frequency,

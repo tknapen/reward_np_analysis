@@ -13,6 +13,7 @@ from .pupil import fit_FIR_pupil_files
 from .plotting import plot_fir_results_unpredictable, \
                     plot_fir_results_predictable, \
                     plot_fir_results_variable
+from .bold_wholebrain_fir import BOLD_FIR_files
 
 __all__ = ['convert_edf_2_hdf5',
            'mask_nii_2_hdf5', 
@@ -28,4 +29,5 @@ __all__ = ['convert_edf_2_hdf5',
            'plot_fir_results_unpredictable',
            'plot_fir_results_predictable',
            'plot_fir_results_variable',
-           'fit_FIR_pupil_files']
+           'fit_FIR_pupil_files',
+           'BOLD_FIR_files']

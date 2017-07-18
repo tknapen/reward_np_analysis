@@ -1,6 +1,6 @@
 from __future__ import division, print_function
 
-def convert_unpredictable_trials_to_tsv(hdf5_file, tsv_file = None, reward_signal = 1.0 ):
+def convert_unpredictable_trials_to_tsv(hdf5_file, reward_signal, tsv_file = None ):
 
     from hedfpy import HDFEyeOperator
     import tempfile
@@ -364,7 +364,7 @@ def behavior_timing(experiment, behavior_file_list, dyns, TR):
                 all_behav_event_times[name] = np.concatenate(all_behav_event_times[name])
 
     elif experiment == 'variable':
-        event_names = ['75S', '75r', '75p', '50S', '50r', '50p', '25S', '25r', '25p', 'fixation_reward']
+        event_names = ['75S', '75+', '75-', '50S', '50+', '50-', '25S', '25+', '25-', 'fixation_reward']
         # get the behavior and format event times and gains for FIR
         all_behav_event_times = {en:[] 
                     for en in event_names}
@@ -386,16 +386,16 @@ def behavior_timing(experiment, behavior_file_list, dyns, TR):
             all_behav_event_times['fixation_reward'].append(np.array(this_run_events[fixation_reward_events].feedback_time) + x * dyns * TR)
 
             all_behav_event_times['75S'].append(np.array(this_run_events[HR_stim_trials].stim_onset_time) + x * dyns * TR)
-            all_behav_event_times['75r'].append(np.array(this_run_events[HR_stim_trials & R_trials].feedback_time) + x * dyns * TR)
-            all_behav_event_times['75p'].append(np.array(this_run_events[HR_stim_trials & NR_trials].feedback_time) + x * dyns * TR)
+            all_behav_event_times['75+'].append(np.array(this_run_events[HR_stim_trials & R_trials].feedback_time) + x * dyns * TR)
+            all_behav_event_times['75-'].append(np.array(this_run_events[HR_stim_trials & NR_trials].feedback_time) + x * dyns * TR)
 
             all_behav_event_times['50S'].append(np.array(this_run_events[MR_stim_trials].stim_onset_time) + x * dyns * TR)
-            all_behav_event_times['50r'].append(np.array(this_run_events[MR_stim_trials & R_trials].feedback_time) + x * dyns * TR)
-            all_behav_event_times['50p'].append(np.array(this_run_events[MR_stim_trials & NR_trials].feedback_time) + x * dyns * TR)
+            all_behav_event_times['50+'].append(np.array(this_run_events[MR_stim_trials & R_trials].feedback_time) + x * dyns * TR)
+            all_behav_event_times['50-'].append(np.array(this_run_events[MR_stim_trials & NR_trials].feedback_time) + x * dyns * TR)
 
             all_behav_event_times['25S'].append(np.array(this_run_events[LR_stim_trials].stim_onset_time) + x * dyns * TR)
-            all_behav_event_times['25r'].append(np.array(this_run_events[LR_stim_trials & R_trials].feedback_time) + x * dyns * TR)
-            all_behav_event_times['25p'].append(np.array(this_run_events[LR_stim_trials & NR_trials].feedback_time) + x * dyns * TR)
+            all_behav_event_times['25+'].append(np.array(this_run_events[LR_stim_trials & R_trials].feedback_time) + x * dyns * TR)
+            all_behav_event_times['25-'].append(np.array(this_run_events[LR_stim_trials & NR_trials].feedback_time) + x * dyns * TR)
 
         for name in event_names:
                 all_behav_event_times[name] = np.concatenate(all_behav_event_times[name])

@@ -48,6 +48,9 @@ def plot_fir_results_unpredictable(deconvolution_interval_timepoints, event_name
     sn.despine(ax=ax1, offset=10, trim=True)
     sn.despine(ax=ax2, offset=10, trim=True)
 
+    f.suptitle(suffix)
+    f.tight_layout()
+
     temp_folder = tempfile.mkdtemp()
     out_figure = op.join(temp_folder, 'unpredictable_%i_%s.pdf'%(int(use_zero_interval), suffix))
 
@@ -102,7 +105,7 @@ def plot_fir_results_predictable(deconvolution_interval_timepoints, rename_dict,
                                     'nonreward_stim': nonreward_stim_fir_timecourse,
                                     'fix_reward': reward_fix_fir_timecourse
                                     })
-   for en, c, a in colors[:4]:
+    for en, c, a in colors[:4]:
         fir_time_course_dict.update({en: used_fir_time_course_dict[rev_rename_dict[en]]})
     
     f, (ax1, ax2) = pl.subplots(1, 2, sharey=True, figsize = (11,4))
@@ -125,6 +128,9 @@ def plot_fir_results_predictable(deconvolution_interval_timepoints, rename_dict,
     
     sn.despine(ax=ax1, offset=10, trim=True)
     sn.despine(ax=ax2, offset=10, trim=True)
+
+    f.suptitle(suffix)
+    f.tight_layout()
 
     temp_folder = tempfile.mkdtemp()
     out_figure = op.join(temp_folder, 'predictable_%i_%s.pdf'%(int(use_zero_interval), suffix))
@@ -151,13 +157,13 @@ def plot_fir_results_variable(deconvolution_interval_timepoints, event_names, fi
         used_fir_time_course_dict = fir_time_course_dict
 
     colors = [[en, c, a, ls] for en, c, a, ls in zip(
-        ['75S', '75r', '75p', '50S', '50r', '50p', '25S', '25r', '25p', 'fixation_reward'],
+        ['75S', '75+', '75-', '50S', '50+', '50-', '25S', '25+', '25-', 'fixation_reward'],
         ['g','g','g','b','b','b','r','r','r','k'],
         [high_alpha,high_alpha,low_alpha,high_alpha,high_alpha,low_alpha,high_alpha,high_alpha,low_alpha,high_alpha],
         ['-','-','--','-','-','--','-','-','--','-']
         )]
 
-    diffs = [used_fir_time_course_dict[perc+'r'] - used_fir_time_course_dict[perc+'p'] for perc in ['75', '50', '25']]
+    diffs = [used_fir_time_course_dict[perc+'+'] - used_fir_time_course_dict[perc+'-'] for perc in ['75', '50', '25']]
     diffs = [np.squeeze(d) for d in diffs]
     diffs.extend([used_fir_time_course_dict['fixation_reward']])
     reward_colors = [[en, c, a, resp] for en, c, a, resp in zip(
@@ -171,7 +177,7 @@ def plot_fir_results_variable(deconvolution_interval_timepoints, event_names, fi
     for en, c, a, ls in colors:
         if en[-1] == 'S':
             ax1.plot(deconvolution_interval_timepoints, used_fir_time_course_dict[en], c = c, alpha = a, label = en, ls = ls)
-        elif (en[-1] == 'r') | (en[-1] == 'p'):
+        elif (en[-1] == '+') | (en[-1] == '-'):
             ax2.plot(deconvolution_interval_timepoints, used_fir_time_course_dict[en], c = c, alpha = a, label = en, ls = ls)
 
     for en, c, a, resp in reward_colors:
@@ -182,6 +188,10 @@ def plot_fir_results_variable(deconvolution_interval_timepoints, event_names, fi
         ax.axhline(y=0, linewidth=0.5)
         ax.legend()
         sn.despine(ax=ax, offset=10, trim=True)
+
+
+    f.suptitle(suffix)
+    f.tight_layout()
 
     temp_folder = tempfile.mkdtemp()
     out_figure = op.join(temp_folder, 'variable_%i_%s.pdf'%(int(use_zero_interval), suffix))

@@ -23,6 +23,7 @@ from IPython.display import Image
 from IPython import embed as shell
 
 from workflows.pupil_workflow import create_pupil_workflow
+from workflows.bold_wholebrain_fir_workflow import create_bold_wholebrain_fir_workflow
 
 # we will create a workflow from a BIDS formatted input, at first for the specific use case 
 # of a 7T PRF experiment's preprocessing. 
@@ -32,7 +33,10 @@ raw_data_dir = '/home/raw_data/-2014/reward/human_reward/data/'
 preprocessed_data_dir = '/home/shared/-2014/reward/new/'
 FS_subject_dir = os.path.join(raw_data_dir, 'FS_SJID')
 
+# booleans that determine whether given stages of the
+# analysis are run
 pupil = True
+wb_fir = True
 
 for si in range(1,7): # 
     sub_id, FS_ID = 'sub-00%i'%si, 'sub-00%i'%si
@@ -90,4 +94,15 @@ for si in range(1,7): #
         pwf.inputs.inputspec.sub_id = sub_id
         pwf.inputs.inputspec.preprocessed_directory = preprocessed_data_dir
 
+        pwf.write_graph(opd + '_pupil.svg', format='svg', graph2use='colored', simple_form=False)
+
         pwf.run('MultiProc', plugin_args={'n_procs': 6})
+
+    if wb_fir:
+        wbfwf = create_bold_wholebrain_fir_workflow(analysis_info,'wb_fir')
+        wbfwf.inputs.inputspec.sub_id = sub_id
+        wbfwf.inputs.inputspec.preprocessed_directory = preprocessed_data_dir
+
+        wbfwf.write_graph(opd + '_wb_fir.svg', format='svg', graph2use='colored', simple_form=False)
+
+        wbfwf.run('MultiProc', plugin_args={'n_procs': 6})

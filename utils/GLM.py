@@ -6,7 +6,7 @@ def fit_glm_nuisances_single_file(
                         in_file, 
                         slice_regressor_list = [], 
                         vol_regressors = '', 
-                        num_components = 20, 
+                        num_components = 6, 
                         method = 'ICA', 
                         mapper = 'unpredictable', 
                         dm_upscale_factor = 10,
@@ -58,7 +58,7 @@ def fit_glm_nuisances_single_file(
     TR, dims, dyns, voxsize, affine = get_scaninfo(in_file)
     header = func_nii.header
 
-    kernels = [eval(func + '(np.linspace(0,25, dm_upscale_factor*25/TR, endpoint = False))') for func in ['spmt', 'dspmt', 'ddspmt']]
+    kernels = [eval(func + '(np.linspace(0,35, dm_upscale_factor*35/TR, endpoint = False))') for func in ['spmt', 'dspmt']]
 
     # import data and convert nans to numbers
     func_data = np.nan_to_num(func_nii.get_data())
@@ -108,7 +108,7 @@ def fit_glm_nuisances_single_file(
         ccw_stim_events = this_run_events.orientation < 0
 
         raw_dm = np.zeros((4, dyns*dm_upscale_factor))
-        conv_dm = np.zeros((4, 3, dyns))
+        conv_dm = np.zeros((4, len(kernels), dyns))
 
         # times for 4 types of stimuli
         event_times = np.round(np.array([
@@ -240,7 +240,9 @@ def fit_FIR_nuisances_all_files(
                         vol_regressor_list = '', 
                         behavior_file_list = '', 
                         fir_frequency = 2,
-                        fir_interval = [-3.0,15.0]
+                        fir_interval = [-3.0,15.0],
+                        num_components = 6, 
+                        method = 'ICA'
                         ):
     """Performs a per-slice FIR deconvolution on nifti-files in_files, 
     with per-slice regressors from slice_regressor_list of nifti files,
@@ -273,6 +275,7 @@ def fit_FIR_nuisances_all_files(
     import numpy as np
     import numpy.linalg as LA
     import scipy as sp
+    from sklearn import decomposition
     import os
     import os.path as op
     import pandas as pd
@@ -349,8 +352,14 @@ def fit_FIR_nuisances_all_files(
 
         nuisance_regressors = np.nan_to_num(nuisance_regressors)
 
-        # normalize regressors
-        nuisance_regressors = (nuisance_regressors.T/nuisance_regressors.std(axis = -1)).T
+        if num_components != 0:
+            if method == 'PCA':
+                pca = decomposition.PCA(n_components = num_components, whiten = True)
+                nuisance_regressors = pca.fit_transform(nuisance_regressors.T).T
+            elif method == 'ICA':
+                ica = decomposition.FastICA(n_components = num_components, whiten = True)
+                nuisance_regressors = ica.fit_transform(nuisance_regressors.T).T
+
 
         fd = FIRDeconvolution(
             signal = slice_data, 

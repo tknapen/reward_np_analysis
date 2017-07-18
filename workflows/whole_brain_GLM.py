@@ -77,7 +77,7 @@ def create_whole_brain_GLM_workflow(analysis_info, name = 'GLM'):
                                 function=fit_glm_nuisances_single_file),
                                 name='unpredictable_GLM')
     unpredictable_GLM.inputs.mapper = 'unpredictable'
-    unpredictable_GLM.inputs.num_components = 24
+    unpredictable_GLM.inputs.num_components = 6
     unpredictable_GLM.inputs.method = 'PCA'
     unpredictable_GLM.inputs.dm_upscale_factor = 10
 
@@ -93,7 +93,7 @@ def create_whole_brain_GLM_workflow(analysis_info, name = 'GLM'):
                                 function=fit_glm_nuisances_single_file),
                                 name='predictable_GLM')
     predictable_GLM.inputs.mapper = 'predictable'
-    predictable_GLM.inputs.num_components = 0   # no physio, just motion correction nuisances
+    predictable_GLM.inputs.num_components = 4   # no physio, just motion correction nuisances
     predictable_GLM.inputs.method = 'PCA'
     predictable_GLM.inputs.dm_upscale_factor = 10
 
@@ -105,7 +105,9 @@ def create_whole_brain_GLM_workflow(analysis_info, name = 'GLM'):
                                             'vol_regressor_list', 
                                             'behavior_file_list',
                                             'fir_frequency',
-                                            'fir_interval'
+                                            'fir_interval',
+                                            'num_components', 
+                                            'method' 
                                             ],
                                 output_names=['out_files'],
                                 function=fit_FIR_nuisances_all_files,
@@ -113,6 +115,8 @@ def create_whole_brain_GLM_workflow(analysis_info, name = 'GLM'):
                                 name='unpredictable_FIR',)
     unpredictable_FIR.inputs.fir_frequency = analysis_info['fir_frequency']
     unpredictable_FIR.inputs.fir_interval = analysis_info['fir_interval']
+    unpredictable_FIR.inputs.num_components = 6
+    unpredictable_FIR.inputs.method = 'PCA'
     unpredictable_FIR.inputs.experiment = 'unpredictable'
 
     predictable_FIR= pe.Node(Function(input_names=[
@@ -123,7 +127,9 @@ def create_whole_brain_GLM_workflow(analysis_info, name = 'GLM'):
                                             'vol_regressor_list', 
                                             'behavior_file_list',
                                             'fir_frequency',
-                                            'fir_interval'
+                                            'fir_interval',
+                                            'num_components', 
+                                            'method'                                            
                                             ],
                                 output_names=['out_files'],
                                 function=fit_FIR_nuisances_all_files,
@@ -131,6 +137,8 @@ def create_whole_brain_GLM_workflow(analysis_info, name = 'GLM'):
                                 name='predictable_FIR')
     predictable_FIR.inputs.fir_frequency = analysis_info['fir_frequency']
     predictable_FIR.inputs.fir_interval = analysis_info['fir_interval']
+    predictable_FIR.inputs.num_components = 6
+    predictable_FIR.inputs.method = 'PCA'
     predictable_FIR.inputs.experiment = 'predictable'
     predictable_FIR.inputs.slice_regressor_lists = [[]] # no physio regressors
 
@@ -142,7 +150,9 @@ def create_whole_brain_GLM_workflow(analysis_info, name = 'GLM'):
                                             'vol_regressor_list', 
                                             'behavior_file_list',
                                             'fir_frequency',
-                                            'fir_interval'
+                                            'fir_interval',
+                                            'num_components', 
+                                            'method'
                                             ],
                                 output_names=['out_files'],
                                 function=fit_FIR_nuisances_all_files,
@@ -150,6 +160,8 @@ def create_whole_brain_GLM_workflow(analysis_info, name = 'GLM'):
                                 name='variable_FIR')
     variable_FIR.inputs.fir_frequency = analysis_info['fir_frequency']
     variable_FIR.inputs.fir_interval = analysis_info['fir_interval']
+    variable_FIR.inputs.num_components = 6
+    variable_FIR.inputs.method = 'PCA'
     variable_FIR.inputs.experiment = 'variable'
 
     # the actual top-level workflow

@@ -55,6 +55,7 @@ def BOLD_FIR_files(     analysis_info,
     from utils import roi_data_from_hdf
 
     threshold = 1.67
+    zero_interval = [-2.5,-0.5]
 
     # roi data
     mapper_alias = op.split(glm_file_mapper_list[0])[-1][:-7] + '_logp'
@@ -64,63 +65,48 @@ def BOLD_FIR_files(     analysis_info,
 
     # behavior
     event_names, all_behav_event_times, rename_dict, which_event_name_rewarded = behavior_timing(experiment, behavior_file_list, dyns, TR)
-
     fir_aliases = [op.split(fir_file_reward_list[0])[-1][:-7] + '_%s'%en for en in event_names]
 
     out_figures = []
     for roi in roi_list:
-
-
         contrast_data = roi_data_from_hdf(data_types_wildcards = [mapper_alias], roi_name_wildcard = roi, hdf5_file = h5_file, folder_alias = 'GLM')
         fir_data = [roi_data_from_hdf(data_types_wildcards = [fa], roi_name_wildcard = roi, hdf5_file = h5_file, folder_alias = 'GLM') for fa in fir_aliases]
         deconvolution_interval_timepoints = np.linspace(analysis_info['fir_interval'][0], analysis_info['fir_interval'][1], fir_data[0].shape[-1], endpoint = False)
 
         # for experiment 'unpredictable' and 'variable' the masking contrast is the initial mapper
-        if experiment in ['unpredictable', 'variable']:
+        if experiment in ['unpredictable', 'variable', 'stream-up']:
             if mapper_contrast == 'stim':
-                fir_time_course_dict = {en: fd[contrast_data[:,0]>threshold].mean(axis = 0) for en,fd in zip(event_names, fir_data)}
+                fir_time_course_dict = {en: fd[contrast_data[:,1]>threshold].mean(axis = 0) for en,fd in zip(event_names, fir_data)}
             elif mapper == 'surround':
-                fir_time_course_dict = {en: fd[contrast_data[:,3]>threshold].mean(axis = 0) for en,fd in zip(event_names, fir_data)}
+                fir_time_course_dict = {en: fd[contrast_data[:,4]>threshold].mean(axis = 0) for en,fd in zip(event_names, fir_data)}
         elif experiment == 'predictable':
             rewarded_location, rewarded_orientation = which_event_name_rewarded.split('_')
             # check which stimulus was rewarded and implement correct contrast values
             if rewarded_location == 'left':
-                rsci,nrsci = [0,3], [6,9]
+                rsci,nrsci = [1,4], [7,10]
             elif rewarded_location == 'right':
-                rsci,nrsci = [6,9], [0,3]
+                rsci,nrsci = [7,10], [1,4]
             # create joined contrast values (not averaged just yet - T values should sort-of sum.)
             if mapper_contrast == 'rewarded_stim':
                 contrast_data_joined = contrast_data[:,rsci[0]] + contrast_data[:,rsci[1]]
             elif mapper_contrast == 'nonrewarded_stim':
                 contrast_data_joined = contrast_data[:,nrsci[0]] + contrast_data[:,nrsci[1]]
+            else:
+                print('unknown mask type for experiment predictable')
             # create ROIs with these contrasts
-            fir_time_course_dict = {en: fd[contrast_data_joined[:,3]>threshold].mean(axis = 0) for en,fd in zip(event_names, fir_data)}
-
+            fir_time_course_dict = {en: fd[contrast_data_joined>threshold].mean(axis = 0) for en,fd in zip(event_names, fir_data)}
 
         if experiment == 'unpredictable':
-            out_figures.append([plot_fir_results_unpredictable(deconvolution_interval_timepoints,
-                                                        event_names, 
-                                                        fir_time_course_dict, 
-                                                        zero_interval = zero_interval, 
-                                                        use_zero_interval = True, 
-                                                        suffix = roi
-                                                        ),
+            out_figures.append(
                             plot_fir_results_unpredictable(deconvolution_interval_timepoints,
                                                         event_names, 
                                                         fir_time_course_dict, 
                                                         zero_interval = zero_interval, 
                                                         use_zero_interval = False, 
                                                         suffix = roi
-                                                        )])
+                                                        ))
         elif experiment == 'predictable':
-            out_figures.append([plot_fir_results_predictable(deconvolution_interval_timepoints,
-                                                        rename_dict,
-                                                        event_names, 
-                                                        fir_time_course_dict, 
-                                                        zero_interval = zero_interval, 
-                                                        use_zero_interval = True, 
-                                                        suffix = roi
-                                                        ),
+            out_figures.append(
                             plot_fir_results_predictable(deconvolution_interval_timepoints,
                                                         rename_dict,
                                                         event_names, 
@@ -128,22 +114,16 @@ def BOLD_FIR_files(     analysis_info,
                                                         zero_interval = zero_interval, 
                                                         use_zero_interval = False, 
                                                         suffix = roi
-                                                        )])
+                                                        ))
         elif experiment == 'variable':
-            out_figures.append([plot_fir_results_variable(deconvolution_interval_timepoints,
-                                                        event_names, 
-                                                        fir_time_course_dict, 
-                                                        zero_interval = zero_interval, 
-                                                        use_zero_interval = True, 
-                                                        suffix = roi
-                                                        ),
+            out_figures.append(
                             plot_fir_results_variable(deconvolution_interval_timepoints,
                                                         event_names, 
                                                         fir_time_course_dict, 
                                                         zero_interval = zero_interval, 
                                                         use_zero_interval = False, 
                                                         suffix = roi
-                                                        )])
+                                                        ))
 
         # the derived data types are added in the plot functions, and overwritten such that the no-zero'd data are saved
         out_values = np.array([np.squeeze(fir_time_course_dict[key]) for key in fir_time_course_dict.iterkeys()]).T
@@ -152,7 +132,7 @@ def BOLD_FIR_files(     analysis_info,
         out_df = pd.DataFrame(out_values, columns = out_columns, index = deconvolution_interval_timepoints)
 
         store = pd.HDFStore(h5_file)
-        store['/fir/'+experiment+'/'+roi+'-'+mapper_contrast] = out_df
+        store['/fir/'+experiment+'/'+roi+'_'+mapper_contrast] = out_df
         store.close()
 
     return out_figures
